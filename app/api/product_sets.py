@@ -119,7 +119,7 @@ def _assets(spec,user_id):
 def capabilities(user: CurrentUser):
     return {'local_layout':True,'reference_editing':provider.available(),'model':provider.MODEL,'max_count':9,'max_references':2,
             'text_rendering':['local','model'],
-            'languages':['ru','en'],'export_long_edges':[1200,2000],
+            'languages':['ru','en','de','fr','es','pt'],'export_long_edges':[1200,2000],
             'native_size':[1536,2048],'live_verified':False,'free_quota_enforced_by_provider':False,
             'note':'完整图文套图流程尚未完成渠道实测。AI 会发送商品原图、最多2张参考图与创作要求，上游另计费；每张另占1个MHP额度。支持1200/2000导出。'}
 

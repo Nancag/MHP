@@ -36,13 +36,13 @@ def summary(user_id):
     with closing(get_connection()) as con, con:
         con.execute('BEGIN IMMEDIATE')
         ensure_wallet(con,user_id)
-        free,paid=con.execute('''SELECT COALESCE(SUM(CASE WHEN source!='membership' THEN remaining ELSE 0 END),0),
-            COALESCE(SUM(CASE WHEN source='membership' THEN remaining ELSE 0 END),0)
+        free,paid=con.execute('''SELECT COALESCE(SUM(CASE WHEN source NOT IN ('membership','recharge') THEN remaining ELSE 0 END),0),
+            COALESCE(SUM(CASE WHEN source IN ('membership','recharge') THEN remaining ELSE 0 END),0)
             FROM credit_grants WHERE user_id=? AND (expires_at IS NULL OR expires_at>?)''',(user_id,timestamp)).fetchone()
         checked=bool(con.execute("SELECT 1 FROM credit_grants WHERE user_id=? AND source='checkin' AND reference=?",(user_id,day(timestamp))).fetchone())
         member=con.execute('SELECT * FROM memberships WHERE user_id=?',(user_id,)).fetchone()
         held=con.execute("SELECT COUNT(*) FROM credit_holds WHERE user_id=? AND state='reserved'",(user_id,)).fetchone()[0]
-    return {'available':free+paid,'free_credits':free,'membership_credits':paid,'reserved':held,
+    return {'available':free+paid,'free_credits':free,'recharge_credits':paid,'reserved':held,
             'checked_in_today':checked,'checkin_reward':DAILY_CHECKIN_CREDITS,'checkin_date':day(timestamp),'timezone':'Asia/Shanghai',
             'membership': {'active':member['expires_at']>timestamp,'plan_id':member['plan_id'],'expires_at':member['expires_at']} if member else None}
 
@@ -66,6 +66,11 @@ def reserve_credit(con, user_id, generation_id):
         raise HTTPException(402, '生成额度不足，请每日签到获取额度后再试')
     con.execute('UPDATE credit_grants SET remaining=remaining-1 WHERE grant_id=? AND remaining>0',(row['grant_id'],))
     con.execute('INSERT INTO credit_holds VALUES (?,?,?,?,0,?)',(generation_id,user_id,row['grant_id'],'reserved',now()))
+
+
+def mark_hold_submitted(con, hold_id):
+    """Mark a generic billable job as sent to its upstream provider."""
+    con.execute("UPDATE credit_holds SET submitted=1 WHERE generation_id=? AND state='reserved'", (hold_id,))
 
 
 def mark_submitted(generation_id):

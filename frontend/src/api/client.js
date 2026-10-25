@@ -78,6 +78,7 @@ export const fetchAccount=()=>accountRequest()
 export const claimDailyCheckin=()=>accountRequest('/checkin',{})
 export const createMembershipOrder=payload=>accountRequest('/orders',payload)
 export const fetchMembershipOrder=id=>accountRequest(`/orders/${encodeURIComponent(id)}`)
+export const redeemMembershipCode=code=>accountRequest('/redeem',{code})
 
 export async function fetchAssets(page = 1, pageSize = 24, role = null) {
   const res = await apiFetch(`${API_BASE}/api/assets?page=${page}&page_size=${pageSize}${role?'&role='+encodeURIComponent(role):''}`)

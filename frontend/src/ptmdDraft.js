@@ -14,7 +14,7 @@ export function createSetDraft(input = {}, assetId = null, defaultResolution = '
     product_name: text(value.product_name),
     requirements: text(value.requirements),
     reference_ids: Array.isArray(value.reference_ids) ? [...value.reference_ids] : [],
-    language: value.language === 'en' ? 'en' : 'ru',
+    language: ['ru', 'en', 'de', 'fr', 'es', 'pt'].includes(value.language) ? value.language : 'ru',
     resolution: ['1200', '2000'].includes(String(value.resolution)) ? String(value.resolution) : defaultResolution,
     count,
     pages: Array.from({ length: count }, (_, index) => {

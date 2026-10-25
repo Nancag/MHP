@@ -65,7 +65,7 @@ class ProductSetSpec(BaseModel):
     product_name: str = Field(min_length=1,max_length=100)
     requirements: str = Field(default='',max_length=2000)
     reference_ids: list[str] = Field(default_factory=list,max_length=2)
-    language: Literal['ru','en'] = 'ru'
+    language: Literal['ru','en','de','fr','es','pt'] = 'ru'
     resolution: Literal['1200','2000'] = '2000'
     count: int = Field(default=8,ge=1,le=9,strict=True)
     pages: list[SetPage] = Field(min_length=1,max_length=9)

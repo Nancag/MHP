@@ -88,7 +88,7 @@ The brief is a production plan, not a statement that images or facts have been v
 
 def capabilities():
     cap = copywriter.capabilities()
-    return {**cap, 'languages': {k: copywriter.LANGUAGES[k] for k in ('ru', 'en')},
+    return {**cap, 'languages': {k: copywriter.LANGUAGES[k] for k in ('ru', 'en', 'de', 'fr', 'es', 'pt')},
             'max_images': MAX_IMAGES, 'max_count': 9, 'multimodal_live_verified': False,
             'presets': [official_templates.get_preset(official_templates.PET_ID)],
             'image_note': '最多9张选定图片，发送前缩至长边1600像素；图片理解、参数及双语文案仍需逐页核对。'}
@@ -134,7 +134,7 @@ def validate_content(value, fields, language, image_ids, count, preset_id=None):
 def generate(fields, language, model, wishes, images, count, preset_id=None):
     preset = official_templates.check_selection(preset_id, count, language)
     base, key, models = copywriter.settings()
-    if not key or model not in models or language not in ('ru', 'en'):
+    if not key or model not in models or language not in ('ru', 'en', 'de', 'fr', 'es', 'pt'):
         raise ProviderError('文案密钥、模型或目标语言尚未正确选择')
     if not 1 <= len(images) <= MAX_IMAGES:
         raise ProviderError('请明确选择1至9张商品素材')

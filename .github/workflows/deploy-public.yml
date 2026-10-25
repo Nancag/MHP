@@ -1,0 +1,44 @@
+name: Deploy public MHP
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: mhp-public-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure the production SSH identity
+        env:
+          MHP_SSH_PRIVATE_KEY: ${{ secrets.MHP_SSH_PRIVATE_KEY }}
+          MHP_SSH_KNOWN_HOSTS: ${{ secrets.MHP_SSH_KNOWN_HOSTS }}
+        run: |
+          test -n "$MHP_SSH_PRIVATE_KEY"
+          test -n "$MHP_SSH_KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$MHP_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$MHP_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Update the public service
+        env:
+          MHP_DEPLOY_HOST: ${{ secrets.MHP_DEPLOY_HOST }}
+          MHP_DEPLOY_USER: ${{ secrets.MHP_DEPLOY_USER }}
+          MHP_DEPLOY_PATH: ${{ secrets.MHP_DEPLOY_PATH }}
+          MHP_DEPLOY_REF: ${{ github.sha }}
+        run: |
+          test -n "$MHP_DEPLOY_HOST"
+          test -n "$MHP_DEPLOY_USER"
+          test -n "$MHP_DEPLOY_PATH"
+          ssh -o BatchMode=yes "$MHP_DEPLOY_USER@$MHP_DEPLOY_HOST" \
+            "MHP_DEPLOY_REF='$MHP_DEPLOY_REF' bash -s" < deploy/github_sync.sh

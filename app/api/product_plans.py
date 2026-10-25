@@ -23,7 +23,7 @@ class PlanRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     request_id: str = Field(pattern=r'^[A-Za-z0-9_-]{1,64}$')
     model: str = Field(min_length=1, max_length=120)
-    language: str = Field(pattern=r'^(ru|en)$')
+    language: str = Field(pattern=r'^(ru|en|de|fr|es|pt)$')
     count: int = Field(ge=1, le=9, strict=True)
     image_ids: list[str] = Field(min_length=1, max_length=9)
     import_id: str | None = Field(default=None, pattern=r'^[0-9a-f]{32}$')

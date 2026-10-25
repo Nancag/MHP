@@ -3,7 +3,7 @@ import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { workspaceRequest, downloadBlob, API_BASE } from '../api/client'
 import { useAppContext } from '../composables/useAppContext'
 const props=defineProps({product:{type:Object,required:true}})
-const app=useAppContext(),cap=ref({models:[],languages:{},configured:false}),model=ref(''),language=ref(''),requirements=ref(''),drafts=ref([]),draft=ref(null),busy=ref(false),error=ref('')
+const app=useAppContext(),cap=ref({models:[],languages:{},configured:false,mkhp_trial:null}),model=ref(''),language=ref(''),requirements=ref(''),drafts=ref([]),draft=ref(null),busy=ref(false),error=ref('')
 let requestId='',requestSignature='',loadVersion=0,stopped=false,pollTimer=null
 async function load(){
   const version=++loadVersion,id=props.product.import_id
@@ -65,6 +65,8 @@ onUnmounted(()=>{stopped=true;clearTimeout(pollTimer);loadVersion++})
   <h3>双语产品介绍与宣传图提示词</h3>
   <p v-if="!cap.configured">后端尚未配置经你确认的密钥与模型。模型列表查询曾返回 HTTP 403；配置并真实验证前，不能生成 AI 文案。</p>
   <p v-else>后端已配置，真实调用效果及费用仍需核对。AI 文案是待审草稿，发布前请检查翻译和商品事实。</p>
+  <p v-if="cap.mkhp_trial?.active">新用户 MKHP 免费体验中，至 {{ new Date(cap.mkhp_trial.ends_at * 1000).toLocaleDateString() }}；本次不消耗生成额度。</p>
+  <p v-else-if="cap.mkhp_trial">MKHP 免费体验已结束；每次生成商品详情页和生图提示词消耗 {{ cap.mkhp_trial.cost_credits }} 张生成额度。</p>
   <div class="fields"><label>文本模型<select v-model="model" :disabled="busy"><option value="" disabled>请选择模型</option><option v-for="id in cap.models" :key="id" :value="id">{{id}}</option></select></label>
   <label>介绍语言<select v-model="language" :disabled="busy"><option value="" disabled>请选择目标语言</option><option v-for="(name,code) in cap.languages" :key="code" :value="code">{{name}}</option></select></label></div>
   <label>用大白话描述宣传图需求<textarea v-model="requirements" rows="3" maxlength="2000" :disabled="busy" placeholder="例如：放在整洁的厨房台面，柔和侧光，突出商品，右侧留白供后续排版。" /></label>

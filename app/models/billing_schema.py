@@ -28,4 +28,8 @@ def create_tables(con):
         UNIQUE(user_id,expires_at));
       CREATE TABLE IF NOT EXISTS membership_email_attempts (
         attempt_id TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS redemption_claims (
+        code_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, credits INTEGER NOT NULL,
+        months INTEGER NOT NULL DEFAULT 0, days INTEGER NOT NULL DEFAULT 0, claimed_at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS idx_redemption_claims_user ON redemption_claims(user_id,claimed_at);
     ''')

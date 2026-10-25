@@ -12,12 +12,13 @@ from pydantic import BaseModel, Field
 
 from app.api.auth import CurrentUser
 from app.models import db
-from app.services import copywriter
+from app.services import copywriter, credit_service
 from app.services.library_service import now
 from app.services.product_document import build_docx
 
 router = APIRouter(prefix='/api/mkhp', tags=['MKHP 双语介绍'])
 _workers = threading.BoundedSemaphore(2)
+TRIAL_SECONDS = 30 * 24 * 3600
 
 
 class DraftRequest(BaseModel):
@@ -35,6 +36,11 @@ def public(row):
     value['usage'] = json.loads(value.pop('usage_json'))
     value.pop('user_id', None); value.pop('payload_hash', None)
     return value
+
+
+def _trial_active(con, user_id, timestamp):
+    row=con.execute('SELECT created_at FROM users WHERE user_id=?',(user_id,)).fetchone()
+    return bool(row and timestamp < row['created_at'] + TRIAL_SECONDS)
 
 
 def _owned(draft_id, user_id):
@@ -55,7 +61,12 @@ def recover_drafts():
 
 @router.get('/ai-capabilities')
 def capabilities(user: CurrentUser):
-    return copywriter.capabilities()
+    value=copywriter.capabilities()
+    with closing(db.get_connection()) as con:
+        row=con.execute('SELECT created_at FROM users WHERE user_id=?',(user['user_id'],)).fetchone()
+    timestamp=now();value['mkhp_trial']={'active':bool(row and timestamp<row['created_at']+TRIAL_SECONDS),
+        'ends_at':row['created_at']+TRIAL_SECONDS if row else None,'cost_credits':0 if row and timestamp<row['created_at']+TRIAL_SECONDS else 1}
+    return value
 
 
 @router.get('/drafts')
@@ -95,6 +106,7 @@ def generate_draft(payload: DraftRequest, user: CurrentUser):
     if not _workers.acquire(blocking=False):
         raise HTTPException(429, '当前文本任务繁忙，请稍后再试')
     did = uuid4().hex
+    paid = False
     try:
         with closing(db.get_connection()) as con, con:
             con.execute('BEGIN IMMEDIATE')
@@ -106,6 +118,9 @@ def generate_draft(payload: DraftRequest, user: CurrentUser):
                 return _owned(existing['draft_id'],user['user_id'])
             if con.execute("SELECT 1 FROM product_drafts WHERE user_id=? AND status='pending'",(user['user_id'],)).fetchone():
                 raise HTTPException(409, '你的上一条文本任务尚未完成，请勿重复生成')
+            paid = not _trial_active(con,user['user_id'],now())
+            if paid:
+                credit_service.reserve_credit(con,user['user_id'],did)
             con.execute('''INSERT INTO product_drafts(draft_id,user_id,import_id,request_id,payload_hash,model,
                 language,requirements,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
                 (did,user['user_id'],payload.import_id,payload.request_id,digest,payload.model,payload.language,
@@ -114,17 +129,25 @@ def generate_draft(payload: DraftRequest, user: CurrentUser):
             # Page evidence is data only. Never send cookies, key, image bytes, or local paths.
             facts = {k:{'value':str(v.get('value',''))[:1000], 'evidence':str(v.get('evidence',''))[:500]}
                      for k,v in fields.items() if isinstance(v,dict)}
+            if paid:
+                with closing(db.get_connection()) as con,con:
+                    credit_service.mark_hold_submitted(con,did)
             content,usage = copywriter.generate(facts,payload.language,payload.model,payload.requirements)
             with closing(db.get_connection()) as con, con:
                 con.execute("UPDATE product_drafts SET status='completed',content_json=?,usage_json=?,updated_at=? WHERE draft_id=?",
                             (json.dumps(content,ensure_ascii=False),json.dumps(usage),now(),did))
+                if paid:credit_service.settle(con,did,'completed')
         except copywriter.ProviderError as exc:
             with closing(db.get_connection()) as con, con:
                 con.execute("UPDATE product_drafts SET status='failed',error=?,updated_at=? WHERE draft_id=?", (str(exc),now(),did))
+                # The request reached the provider. It may have been billed even when no usable
+                # response arrived, so keep the reservation consumed and never retry automatically.
+                if paid:credit_service.settle(con,did,'completed')
         except Exception:
             with closing(db.get_connection()) as con, con:
                 con.execute("UPDATE product_drafts SET status='failed',error=?,updated_at=? WHERE draft_id=?",
                             ('生成结果保存失败；上游可能已计费，请检查后再决定是否重试',now(),did))
+                if paid:credit_service.settle(con,did,'completed')
         return _owned(did,user['user_id'])
     finally:
         _workers.release()
