@@ -51,6 +51,25 @@ jobs:
           test -n "$MHP_DEPLOY_PATH"
           archive=data/github-release/mhp-release.tar.gz
           sha=$(sha256sum "$archive" | awk '{print $1}')
-          scp -o BatchMode=yes "$archive" "$MHP_DEPLOY_USER@$MHP_DEPLOY_HOST:/tmp/mhp-release-$sha.tar.gz"
+          host="$MHP_DEPLOY_USER@$MHP_DEPLOY_HOST"
+          script="/tmp/mhp-apply-$sha.sh"
+          log="/tmp/mhp-release-$sha.log"
+          status="/tmp/mhp-release-$sha.status"
+          scp -o BatchMode=yes "$archive" "$host:/tmp/mhp-release-$sha.tar.gz"
+          scp -o BatchMode=yes deploy/apply_github_release.sh "$host:$script"
           ssh -o BatchMode=yes "$MHP_DEPLOY_USER@$MHP_DEPLOY_HOST" \
-            "MHP_RELEASE_SHA='$sha' MHP_DEPLOY_PATH='$MHP_DEPLOY_PATH' bash -s" < deploy/apply_github_release.sh
+            "rm -f '$status' '$log'; chmod 700 '$script'; nohup env MHP_RELEASE_SHA='$sha' MHP_DEPLOY_PATH='$MHP_DEPLOY_PATH' bash '$script' >'$log' 2>&1 < /dev/null &"
+          for attempt in $(seq 1 180); do
+            result=$(ssh -o BatchMode=yes -o ConnectTimeout=15 "$host" "cat '$status' 2>/dev/null || true" || true)
+            if [ "$result" = success ]; then
+              ssh -o BatchMode=yes "$host" "rm -f '$script' '$log' '$status'"
+              exit 0
+            fi
+            if [ "$result" = failed ]; then
+              ssh -o BatchMode=yes "$host" "tail -200 '$log'; rm -f '$script' '$status'" || true
+              exit 1
+            fi
+            sleep 10
+          done
+          ssh -o BatchMode=yes "$host" "tail -200 '$log'" || true
+          exit 1

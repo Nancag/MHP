@@ -5,6 +5,7 @@ set -euo pipefail
 SITE=${MHP_DEPLOY_PATH:-/opt/mhp}
 SHA=${MHP_RELEASE_SHA:?MHP_RELEASE_SHA is required}
 ARCHIVE=/tmp/mhp-release-${SHA}.tar.gz
+STATUS=/tmp/mhp-release-${SHA}.status
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 BACKUP=/opt/mhp-backups/github-release-${STAMP}
 STAGE=$(mktemp -d /opt/mhp-release.XXXXXX)
@@ -12,7 +13,14 @@ ROLLBACK_API="mhp-api:rollback-${STAMP}"
 ROLLBACK_WEB="mhp-web:rollback-${STAMP}"
 
 cleanup() { rm -rf "$STAGE" "$ARCHIVE"; }
-trap cleanup EXIT
+finish() {
+    code=$?
+    printf '%s\n' "$([ "$code" -eq 0 ] && echo success || echo failed)" > "$STATUS"
+    cleanup
+    trap - EXIT
+    exit "$code"
+}
+trap finish EXIT
 test "$SITE" = /opt/mhp
 test -d "$SITE/data"
 test -f "$SITE/.env"
