@@ -4,6 +4,7 @@ import io
 import json
 from pathlib import Path
 import tempfile
+import hashlib
 from contextlib import ExitStack,closing
 import unittest
 from unittest.mock import Mock,patch
@@ -13,7 +14,7 @@ from fastapi import FastAPI
 from app.api import auth,assets,generations,product_sets,workspace
 from app.models import db
 from app.repositories.asset_repo import create_asset
-from app.services import generation_service,storage_service,credit_service
+from app.services import generation_service,storage_service,credit_service,fixed_ptmd_template,reference_service as provider
 from support_client import Client
 
 
@@ -79,6 +80,35 @@ class WithoutCutoutTests(unittest.TestCase):
         status,value=self.client.call('POST','/api/generations',{'prompt':'test'})
         self.assertEqual(status,503,value)
         self.assertEqual(credit_service.summary('owner')['available'],before)
+
+    def test_exact_approved_source_returns_fixed_poster_without_ai_or_credit(self):
+        """The owner-approved source/output pair ignores all editable AI settings."""
+        source=self.root/'approved-source.png'; target=self.root/'approved-output.png'
+        Image.new('RGB',(80,80),(15,25,35)).save(source)
+        Image.new('RGB',(1086,1448),(220,120,20)).save(target)
+        (storage_service.UPLOAD_DIR/(self.aid+'.png')).write_bytes(source.read_bytes())
+        digest=hashlib.sha256(source.read_bytes()).hexdigest()
+        before=credit_service.summary('owner')['available']
+        payload={'request_id':'fixed-template','confirm_send':False,'spec':{
+            'engine':'reference','image_quality':None,'text_rendering':None,'product_name':'ignored',
+            'requirements':'This prompt must not influence the output.', 'language':'en','resolution':'1200','count':1,
+            'pages':[{'asset_id':self.aid,'kind':'main','title':'ignored','copy_lines':[]}]}}
+        with patch.object(fixed_ptmd_template,'SOURCE_SHA256',digest), \
+             patch.object(fixed_ptmd_template,'RESULT',target), \
+             patch.object(provider,'edit_image') as ai:
+            status,state=self.client.call('POST','/api/product-sets',payload)
+            self.assertEqual(status,201,state)
+            product_sets._run_set(state['batch_id'],'owner')
+        ai.assert_not_called()
+        state=self.client.call('GET','/api/product-sets/'+state['batch_id'])[1]
+        row=state['items'][0]
+        self.assertEqual(row['type'],'fixed_template')
+        self.assertEqual(row['model'],fixed_ptmd_template.TEMPLATE_ID)
+        self.assertEqual(credit_service.summary('owner')['available'],before)
+        generated=generation_service.GENERATION_DIR/row['filename']
+        self.assertEqual(generated.read_bytes(),target.read_bytes())
+        self.assertTrue(row['workflow']['prompt_ignored'])
+        self.assertEqual(row['workflow']['api_calls'],0)
 
     def test_segmentation_runtime_is_not_required(self):
         root=Path(__file__).resolve().parents[1]

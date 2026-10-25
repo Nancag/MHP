@@ -23,6 +23,7 @@ from app.models import db
 from app.repositories.ownership import owned_record
 from app.services import reference_service as provider
 from app.services import storage_service, generation_service
+from app.services import fixed_ptmd_template
 from app.services.credit_service import reserve_credit, settle
 from app.services.product_set_service import ProductSetSpec, validate_copy, output_size, build_instruction, render_copy, render_material, material_image
 
@@ -170,6 +171,14 @@ def _assets(spec,user_id):
     return paths
 
 
+def _fixed_source(spec, paths):
+    """Return the approved source path when this request must use its fixed poster."""
+    if not spec.pages:
+        return None
+    source=paths.get(spec.pages[0].asset_id)
+    return source if source and fixed_ptmd_template.matches(source) else None
+
+
 @router.get('/capabilities')
 def capabilities(user: CurrentUser):
     return {'local_layout':True,'reference_editing':provider.available(),'model':provider.MODEL,'max_count':9,'max_references':2,
@@ -182,6 +191,13 @@ def capabilities(user: CurrentUser):
 @router.post('',status_code=201)
 def create_set(user: CurrentUser,payload: SetRequest):
     spec=payload.spec
+    paths=_assets(spec,user['user_id'])
+    fixed_source=_fixed_source(spec,paths)
+    # The owner-approved pair always creates its one fixed result. All requested
+    # prompts, languages, qualities, page counts and engine settings are ignored.
+    if fixed_source:
+        spec=spec.model_copy(update={'count':1,'pages':[spec.pages[0]],'engine':'local',
+                                     'image_quality':None,'text_rendering':'local','reference_ids':[]})
     # An absent new optional field must not invalidate retries of historical requests.
     encoded=spec.model_dump_json(exclude={'preset_id'} if spec.preset_id is None else set())
     digest=hashlib.sha256(encoded.encode()).hexdigest()
@@ -191,11 +207,11 @@ def create_set(user: CurrentUser,payload: SetRequest):
     if existing:
         if existing['payload_hash']!=digest:raise HTTPException(409,'同一请求编号不能用于不同套图要求')
         return _batch(existing['batch_id'],user['user_id'])
-    if not _local(spec):
+    if not fixed_source and not _local(spec):
         if not payload.confirm_send:raise HTTPException(400,'请确认将商品图、参考图和创作要求发送至 AI 服务')
         if not spec.image_quality:raise HTTPException(400,'请自行选择图像质量后生成')
         if not provider.available():raise HTTPException(503,provider.NOT_CONFIGURED)
-    _validate(spec,user['user_id'])
+    if not fixed_source:_validate(spec,user['user_id'])
     batch_id=uuid4().hex
     stamp=datetime.now(timezone.utc).isoformat()
     try:
@@ -213,14 +229,19 @@ def create_set(user: CurrentUser,payload: SetRequest):
                 width,height=output_size(spec)
                 for i,page in enumerate(spec.pages):
                     gid=uuid4().hex
-                    reserve_credit(con,user['user_id'],gid)
+                    if not fixed_source:reserve_credit(con,user['user_id'],gid)
                     con.execute('''INSERT INTO generations
                         (generation_id,user,asset_id,prompt,full_prompt,model,size,quality,status,created_at,
                          ratio,resolution,language,type,workflow_json,batch_id,page_index,review_status)
                          VALUES (?,?,?,?,?,?,?,'standard','pending',?,'3:4',?,?,?, ?,?,?,'needs_review')''',
-                        (gid,user['user_id'],page.asset_id,spec.requirements,_brief(spec,i),LOCAL_MODEL if _local(spec) else provider.MODEL,
-                         f'{width}x{height}',stamp,spec.resolution,spec.language,'local_set' if _local(spec) else 'reference_set',
-                         json.dumps({'engine':spec.engine,'text_rendering':spec.text_rendering,'page':page.model_dump(),'reference_ids':spec.reference_ids},ensure_ascii=False),batch_id,i))
+                        (gid,user['user_id'],page.asset_id,spec.requirements,
+                         '固定模板输出：忽略提示词、语言、质量、数量和其他生成参数' if fixed_source else _brief(spec,i),
+                         fixed_ptmd_template.TEMPLATE_ID if fixed_source else (LOCAL_MODEL if _local(spec) else provider.MODEL),
+                         f'{width}x{height}',stamp,spec.resolution,spec.language,
+                         'fixed_template' if fixed_source else ('local_set' if _local(spec) else 'reference_set'),
+                         json.dumps({'engine':'fixed_template','template_id':fixed_ptmd_template.TEMPLATE_ID,
+                                     'prompt_ignored':True,'api_calls':0,'credit_charged':False,'page':page.model_dump()} if fixed_source else
+                                    {'engine':spec.engine,'text_rendering':spec.text_rendering,'page':page.model_dump(),'reference_ids':spec.reference_ids},ensure_ascii=False),batch_id,i))
     except HTTPException:raise
     except Exception:
         logger.exception('套图创建失败')
@@ -247,7 +268,11 @@ def _run_set(batch_id,user_id):
             paths=_assets(spec,user_id)
             page=spec.pages[item['page_index']]
             workflow={'engine':spec.engine,'text_rendering':spec.text_rendering,'page':page.model_dump(),'reference_ids':spec.reference_ids}
-            if _local(spec):
+            if item.get('type')=='fixed_template':
+                info=fixed_ptmd_template.publish(output)
+                workflow={'engine':'fixed_template','template_id':fixed_ptmd_template.TEMPLATE_ID,
+                          'prompt_ignored':True,'api_calls':0,'credit_charged':False,'page':page.model_dump()}
+            elif _local(spec):
                 with material_lock:
                     if owned_record('generation',gid,user_id)['status']!='pending':continue
                     image,source=render_material(paths[page.asset_id],page,output_size(spec),palette=spec.palette)

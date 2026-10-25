@@ -25,6 +25,7 @@ def run():
     files = list((ROOT / 'app').rglob('*.py'))
     files += [ROOT/'extensions/mhp-collector'/name for name in ('manifest.json','popup.html','popup.css','popup.js','extractor.js','bridge.js','background.js','README.md','MHP-Collector-Setup.exe','installer-build.json')]
     files += [ROOT / 'app/assets/fonts' / name for name in ('NotoSans-Regular.ttf','NotoSans-Bold.ttf','OFL.txt','README.md')]
+    files += [path for path in (ROOT / 'app/assets/templates').glob('*') if path.is_file()]
     files += [p for p in (ROOT / 'frontend/dist').rglob('*') if p.is_file()]
     files += [ROOT / p for p in ('requirements-cloud.txt', 'requirements-cloud.lock', 'compose.json', '.dockerignore',
                                  'deploy/Dockerfile.api', 'deploy/Dockerfile.web', 'deploy/Caddyfile',

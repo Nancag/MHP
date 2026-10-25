@@ -23,6 +23,7 @@ def main():
         raise ValueError('frontend/dist/index.html is missing; run npm ci and npm run build first')
     files = list((ROOT / 'app').rglob('*.py'))
     files += list((ROOT / 'app' / 'assets' / 'fonts').glob('*'))
+    files += list((ROOT / 'app' / 'assets' / 'templates').glob('*'))
     files += [path for path in dist.rglob('*') if path.is_file()]
     files += [ROOT / 'extensions' / 'mhp-collector' / name for name in
               ('manifest.json','popup.html','popup.css','popup.js','extractor.js','bridge.js','background.js','README.md','MHP-Collector-Setup.exe','installer-build.json')]
