@@ -19,6 +19,15 @@ def check_origin(request: Request):
         raise HTTPException(403, "不允许跨站请求")
 
 
+def limit_auth_request(request: Request):
+    auth.check_endpoint_rate(
+        request.client.host if request.client else "local",
+        request.url.path,
+        limit=60,
+        window=60,
+    )
+
+
 def require_user(request: Request):
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         check_origin(request)
@@ -61,14 +70,14 @@ class ResetPassword(BaseModel):
     new_password:str=Field(min_length=10,max_length=128)
 
 
-@router.post('/password/reset-code',dependencies=[Depends(check_origin)])
+@router.post('/password/reset-code',dependencies=[Depends(check_origin),Depends(limit_auth_request)])
 def reset_code(payload:SendCode,request:Request,response:Response):
     response.headers['Cache-Control']='no-store'
     result=auth.request_code(payload.email,request.client.host if request.client else 'local',purpose='reset')
     return {**result,'message':'若该邮箱已注册，将收到找回密码验证码'}
 
 
-@router.post('/password/reset',dependencies=[Depends(check_origin)])
+@router.post('/password/reset',dependencies=[Depends(check_origin),Depends(limit_auth_request)])
 def reset_password_route(payload:ResetPassword,response:Response):
     response.headers['Cache-Control']='no-store'
     result=password_auth.reset_password(payload.challenge_id,payload.code,payload.new_password)
@@ -80,13 +89,13 @@ def cookie(response,token,ttl,remember):
         secure=os.environ.get('AUTH_COOKIE_SECURE','0')=='1',samesite='lax',path='/')
     response.headers['Cache-Control']='no-store'
 
-@router.post('/register',dependencies=[Depends(check_origin)])
+@router.post('/register',dependencies=[Depends(check_origin),Depends(limit_auth_request)])
 def register(payload:Register,request:Request,response:Response):
     user,token,ttl=auth.verify_code(payload.challenge_id,payload.code,payload.username,payload.remember,payload.password)
     auth.revoke_session(request.cookies.get(auth.COOKIE_NAME));cookie(response,token,ttl,payload.remember)
     return {'user':{**user,'password_configured':True}}
 
-@router.post('/login',dependencies=[Depends(check_origin)])
+@router.post('/login',dependencies=[Depends(check_origin),Depends(limit_auth_request)])
 def password_login(payload:Login,request:Request,response:Response):
     user,token,ttl=password_auth.login(payload.email,payload.password,request.client.host if request.client else 'local',payload.remember)
     auth.revoke_session(request.cookies.get(auth.COOKIE_NAME));cookie(response,token,ttl,payload.remember)
@@ -108,13 +117,13 @@ def get_config(response: Response):
     return {"email_enabled": auth.email_ready(), "sms_enabled": False}
 
 
-@router.post("/email/code", dependencies=[Depends(check_origin)])
+@router.post("/email/code", dependencies=[Depends(check_origin),Depends(limit_auth_request)])
 def send_code(payload: SendCode, request: Request, response: Response):
     response.headers["Cache-Control"] = "no-store"
     return auth.request_code(payload.email, request.client.host if request.client else "local")
 
 
-@router.post("/email/verify", dependencies=[Depends(check_origin)])
+@router.post("/email/verify", dependencies=[Depends(check_origin),Depends(limit_auth_request)])
 def verify(payload: VerifyCode, request: Request, response: Response):
     if os.environ.get('AUTH_LEGACY_CODE_LOGIN','0')!='1':
         raise HTTPException(410,'验证码仅用于注册或首次绑定密码，请使用注册或密码登录')

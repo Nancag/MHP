@@ -68,6 +68,37 @@ def normalize_username(value):
     return value
 
 
+def _client_hash(client):
+    return hmac.new(_secret(), str(client).encode(), hashlib.sha256).hexdigest()
+
+
+def check_endpoint_rate(client, endpoint, *, limit=60, window=60):
+    """Limit expensive authentication attempts by source, across processes."""
+    timestamp = now()
+    client_hash = _client_hash(client)
+    with closing(get_connection()) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            "DELETE FROM auth_endpoint_attempts WHERE created_at < ?",
+            (timestamp - 3600,),
+        )
+        count = connection.execute(
+            """SELECT COUNT(*) FROM auth_endpoint_attempts
+               WHERE client_hash = ? AND endpoint = ? AND created_at > ?""",
+            (client_hash, endpoint, timestamp - window),
+        ).fetchone()[0]
+        if count >= limit:
+            raise HTTPException(
+                429,
+                "认证请求过于频繁，请稍后重试",
+                headers={"Retry-After": str(window)},
+            )
+        connection.execute(
+            "INSERT INTO auth_endpoint_attempts VALUES (?, ?, ?)",
+            (client_hash, endpoint, timestamp),
+        )
+
+
 SMTP_HOSTS = {"163.com": "smtp.163.com", "126.com": "smtp.126.com", "yeah.net": "smtp.yeah.net"}
 
 
@@ -185,40 +216,116 @@ def send_reset_email(email,code,challenge_id):
 
 
 def request_code(email, client, purpose='register'):
-    if purpose not in ('register','reset'):raise ValueError('Unsupported code purpose')
+    if purpose not in ('register', 'reset'):
+        raise ValueError('Unsupported code purpose')
     email = normalize_email(email)
     with closing(get_connection()) as lookup:
-        exists=bool(lookup.execute('SELECT 1 FROM users WHERE email=?',(email,)).fetchone())
-        if purpose=='register' and lookup.execute('SELECT 1 FROM users u JOIN password_credentials p ON p.user_id=u.user_id WHERE u.email=?',(email,)).fetchone():
-            raise HTTPException(409,'此账号已注册，请使用密码登录；已有登录设备可在设置中修改密码')
+        exists = bool(lookup.execute('SELECT 1 FROM users WHERE email=?', (email,)).fetchone())
+        if purpose == 'register' and lookup.execute(
+            'SELECT 1 FROM users u JOIN password_credentials p ON p.user_id=u.user_id WHERE u.email=?',
+            (email,),
+        ).fetchone():
+            raise HTTPException(409, '此账号已注册，请使用密码登录；已有登录设备可在设置中修改密码')
     if not email_ready():
         raise HTTPException(503, "邮箱服务尚未配置，请联系管理员")
+
     timestamp = now()
     challenge_id = secrets.token_hex(16)
     code = f"{secrets.randbelow(1000000):06d}"
-    client_hash = hmac.new(_secret(), client.encode(), hashlib.sha256).hexdigest()
+    client_hash = _client_hash(client)
+    email_hash = digest(email)
+    will_send = purpose == 'register' or exists
     connection = get_connection()
     try:
         connection.execute("BEGIN IMMEDIATE")
         connection.execute("DELETE FROM auth_codes WHERE created_at < ?", (timestamp - 86400,))
         connection.execute("DELETE FROM auth_sessions WHERE expires_at <= ?", (timestamp,))
-        latest = connection.execute("SELECT MAX(created_at) FROM auth_codes WHERE email = ?", (email,)).fetchone()[0]
-        email_count = connection.execute("SELECT COUNT(*) FROM auth_codes WHERE email = ? AND created_at > ?", (email, timestamp - 3600)).fetchone()[0]
-        client_count = connection.execute("SELECT COUNT(*) FROM auth_codes WHERE client_hash = ? AND created_at > ?", (client_hash, timestamp - 3600)).fetchone()[0]
-        daily_count = connection.execute("SELECT COUNT(*) FROM auth_codes WHERE created_at >= ?", (timestamp - timestamp % 86400,)).fetchone()[0]
-        daily_count += connection.execute('SELECT COUNT(*) FROM membership_email_attempts WHERE created_at>=?',(timestamp-timestamp%86400,)).fetchone()[0]
+        connection.execute(
+            "DELETE FROM unknown_reset_attempts WHERE created_at < ?",
+            (timestamp - 86400,),
+        )
+
+        if not will_send:
+            # Unknown-email resets have their own budget and never create a
+            # mail-bearing auth_codes row. The response remains indistinguishable
+            # from a real request so account existence is not disclosed.
+            latest = connection.execute(
+                "SELECT MAX(created_at) FROM unknown_reset_attempts WHERE email_hash = ?",
+                (email_hash,),
+            ).fetchone()[0]
+            email_count = connection.execute(
+                """SELECT COUNT(*) FROM unknown_reset_attempts
+                   WHERE email_hash = ? AND created_at > ?""",
+                (email_hash, timestamp - 3600),
+            ).fetchone()[0]
+            client_count = connection.execute(
+                """SELECT COUNT(*) FROM unknown_reset_attempts
+                   WHERE client_hash = ? AND created_at > ?""",
+                (client_hash, timestamp - 3600),
+            ).fetchone()[0]
+            if (
+                (latest is not None and timestamp - latest < 60)
+                or email_count >= 5
+                or client_count >= 20
+            ):
+                raise HTTPException(429, "发送过于频繁，请稍后重试")
+            connection.execute(
+                "INSERT INTO unknown_reset_attempts VALUES (?, ?, ?)",
+                (email_hash, client_hash, timestamp),
+            )
+            connection.commit()
+            return {
+                "challenge_id": challenge_id,
+                "expires_in": CODE_TTL,
+                "retry_after": 60,
+            }
+
+        latest = connection.execute(
+            "SELECT MAX(created_at) FROM auth_codes WHERE email = ?", (email,)
+        ).fetchone()[0]
+        email_count = connection.execute(
+            "SELECT COUNT(*) FROM auth_codes WHERE email = ? AND created_at > ?",
+            (email, timestamp - 3600),
+        ).fetchone()[0]
+        client_count = connection.execute(
+            "SELECT COUNT(*) FROM auth_codes WHERE client_hash = ? AND created_at > ?",
+            (client_hash, timestamp - 3600),
+        ).fetchone()[0]
+        daily_count = connection.execute(
+            "SELECT COUNT(*) FROM auth_codes WHERE created_at >= ?",
+            (timestamp - timestamp % 86400,),
+        ).fetchone()[0]
+        daily_count += connection.execute(
+            'SELECT COUNT(*) FROM membership_email_attempts WHERE created_at>=?',
+            (timestamp - timestamp % 86400,),
+        ).fetchone()[0]
         daily_limit = 10 if email_provider() == "netease_smtp" else 90
-        if (latest is not None and timestamp - latest < 60) or email_count >= 5 or client_count >= 20 or daily_count >= daily_limit:
+        if (
+            (latest is not None and timestamp - latest < 60)
+            or email_count >= 5
+            or client_count >= 20
+            or daily_count >= daily_limit
+        ):
             raise HTTPException(429, "发送过于频繁，请稍后重试")
-        connection.execute("INSERT INTO auth_codes VALUES (?, ?, ?, ?, ?, 0, 0, ?)",
-                           (challenge_id, email, code_digest(('reset:' if purpose=='reset' else '')+challenge_id, code), timestamp, timestamp + CODE_TTL, client_hash))
+        connection.execute(
+            "INSERT INTO auth_codes VALUES (?, ?, ?, ?, ?, 0, 0, ?)",
+            (
+                challenge_id,
+                email,
+                code_digest(('reset:' if purpose == 'reset' else '') + challenge_id, code),
+                timestamp,
+                timestamp + CODE_TTL,
+                client_hash,
+            ),
+        )
         connection.commit()
     finally:
         connection.close()
     try:
-        if purpose=='reset':
-            if exists:send_reset_email(email,code,challenge_id)
-        else:send_email(email, code, challenge_id)
+        if purpose == 'reset':
+            send_reset_email(email, code, challenge_id)
+        else:
+            send_email(email, code, challenge_id)
     except Exception:
         with get_connection() as connection:
             connection.execute("UPDATE auth_codes SET consumed = 1 WHERE challenge_id = ?", (challenge_id,))
@@ -233,27 +340,56 @@ def request_code(email, client, purpose='register'):
     return {"challenge_id": challenge_id, "expires_in": CODE_TTL, "retry_after": 60}
 
 
+def _valid_code(connection, challenge_id, code, timestamp):
+    row = connection.execute(
+        "SELECT * FROM auth_codes WHERE challenge_id = ?", (challenge_id,)
+    ).fetchone()
+    if not row or row["consumed"] or row["attempts"] >= 5 or row["expires_at"] <= timestamp:
+        raise HTTPException(400, "验证码无效或已过期，请重新获取")
+    if not hmac.compare_digest(row["code_hash"], code_digest(challenge_id, code)):
+        connection.execute(
+            "UPDATE auth_codes SET attempts = attempts + 1 WHERE challenge_id = ?",
+            (challenge_id,),
+        )
+        connection.commit()
+        raise HTTPException(400, "验证码错误")
+    return row
+
+
 def verify_code(challenge_id, code, username, remember, password=None):
     from app.services.password_auth import encode_password
-    encoded=encode_password(password) if password is not None else None
     timestamp = now()
-    connection = get_connection()
-    try:
+
+    # Expensive password derivation must happen only after a one-time challenge
+    # and its purpose have been validated. This first pass also rejects invalid
+    # usernames without holding the write transaction during PBKDF2.
+    with closing(get_connection()) as connection:
         connection.execute("BEGIN IMMEDIATE")
-        row = connection.execute("SELECT * FROM auth_codes WHERE challenge_id = ?", (challenge_id,)).fetchone()
-        if not row or row["consumed"] or row["attempts"] >= 5 or row["expires_at"] <= timestamp:
-            raise HTTPException(400, "验证码无效或已过期，请重新获取")
-        if not hmac.compare_digest(row["code_hash"], code_digest(challenge_id, code)):
-            connection.execute("UPDATE auth_codes SET attempts = attempts + 1 WHERE challenge_id = ?", (challenge_id,))
-            connection.commit()
-            raise HTTPException(400, "验证码错误")
+        row = _valid_code(connection, challenge_id, code, timestamp)
         user = connection.execute("SELECT user_id, username FROM users WHERE email = ?", (row["email"],)).fetchone()
         if user and connection.execute('SELECT 1 FROM password_credentials WHERE user_id=?',(user['user_id'],)).fetchone():
             raise HTTPException(409,'账号已注册，请使用密码登录')
         if not user:
             if username is None:
                 raise HTTPException(409, "首次注册请填写用户名")
-            username = normalize_username(username or "")
+            username = normalize_username(username)
+    encoded = encode_password(password) if password is not None else None
+
+    connection = get_connection()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        row = _valid_code(connection, challenge_id, code, timestamp)
+        user = connection.execute(
+            "SELECT user_id, username FROM users WHERE email = ?", (row["email"],)
+        ).fetchone()
+        if user and connection.execute(
+            'SELECT 1 FROM password_credentials WHERE user_id=?', (user['user_id'],)
+        ).fetchone():
+            raise HTTPException(409, '账号已注册，请使用密码登录')
+        if not user:
+            if username is None:
+                raise HTTPException(409, "首次注册请填写用户名")
+            username = normalize_username(username)
             user = {"user_id": secrets.token_hex(16), "username": username}
             connection.execute("INSERT INTO users VALUES (?, ?, ?, ?)", (user["user_id"], row["email"], username, timestamp))
             from app.services.credit_service import ensure_wallet

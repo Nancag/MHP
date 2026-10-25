@@ -118,6 +118,16 @@ class ImagePipelineTests(unittest.TestCase):
         with patch.object(provider,'edit_image') as edit:product_sets._run_set(state['batch_id'],'owner')
         edit.assert_not_called();self.assertEqual(credit_service.summary('owner')['available'],5)
 
+    def test_product_set_queue_saturates_per_user_without_thread_per_job(self):
+        def payload(request_id):
+            value=self.payload();value['request_id']=request_id;return value
+        with patch.object(provider,'available',return_value=True),patch.object(product_sets,'_validate',return_value={}),patch.dict(os.environ,{'MHP_PRODUCT_SET_USER_QUEUE':'2'}):
+            for request_id in ('queue-one','queue-two'):
+                status,state=self.client.call('POST','/api/product-sets',payload(request_id))
+                self.assertEqual(status,201,state)
+            self.assertEqual(self.client.call('POST','/api/product-sets',payload('queue-three'))[0],429)
+        self.assertEqual(product_sets._submit_set.call_count,2)
+
     def test_long_mkhp_brief_validates_and_references_remain_owner_checked(self):
         payload=self.payload();payload['spec']['requirements']='Preserve the real product and use soft light. '*40
         with patch.object(provider,'available',return_value=True):

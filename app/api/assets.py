@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import sqlite3
 import time
@@ -20,11 +21,76 @@ from app.services.storage_service import (
     UPLOAD_DIR,
     save_product_image,
 )
+from app.services.storage_quota import StorageQuotaExceeded
 from app.services.library_service import owned_folder
 
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/assets", tags=["商品图片"])
+
+
+def trash_retention_days():
+    raw = os.environ.get("MHP_TRASH_RETENTION_DAYS", "30").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return 30
+    return value if value >= 0 else 30
+
+
+def _remove_empty_trash_parents(path):
+    trash_root = (UPLOAD_DIR.parent / 'trash').resolve()
+    parent = path.parent.resolve()
+    while parent != trash_root and parent.is_relative_to(trash_root):
+        try:
+            parent.rmdir()
+        except OSError:
+            break
+        parent = parent.parent
+
+
+def purge_expired_trash():
+    """Permanently remove trash items past the configured retention period."""
+    days = trash_retention_days()
+    if days == 0 or not _ASSET_MUTATION_LOCK.acquire(blocking=False):
+        return 0
+    removed = 0
+    try:
+        cutoff = int(time.time()) - days * 86400
+        with closing(db.get_connection()) as con:
+            rows = con.execute(
+                """SELECT asset_id,filename FROM assets
+                   WHERE deleted_at IS NOT NULL AND deleted_at < ?
+                   ORDER BY deleted_at LIMIT 200""",
+                (cutoff,),
+            ).fetchall()
+        for row in rows:
+            with closing(db.get_connection()) as con, con:
+                con.execute('BEGIN IMMEDIATE')
+                current = con.execute(
+                    """SELECT filename FROM assets
+                       WHERE asset_id=? AND deleted_at IS NOT NULL AND deleted_at < ?""",
+                    (row['asset_id'], cutoff),
+                ).fetchone()
+                if not current:
+                    continue
+                path = UPLOAD_DIR.parent / 'trash' / current['filename']
+                trash_root = (UPLOAD_DIR.parent / 'trash').resolve()
+                if not path.resolve().is_relative_to(trash_root):
+                    logger.error("拒绝清理越界回收站路径: %s", row['asset_id'])
+                    continue
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    logger.exception("回收站文件永久删除失败: %s", row['asset_id'])
+                    continue
+                con.execute('DELETE FROM assets WHERE asset_id=?', (row['asset_id'],))
+            _remove_empty_trash_parents(path)
+            removed += 1
+    finally:
+        _ASSET_MUTATION_LOCK.release()
+    return removed
+
 
 @router.get('/trash')
 def trash(user:CurrentUser):
@@ -46,7 +112,9 @@ def delete_asset(asset_id:str,user:CurrentUser):
             destination.parent.mkdir(parents=True,exist_ok=True)
             if source.exists():source.replace(destination);moved=True
             con.execute('UPDATE assets SET deleted_at=? WHERE asset_id=?',(int(time.time()),asset_id))
-        return {'deleted':True,'recoverable':True,'message':'已移入回收站；已有生成结果保留'}
+        days = trash_retention_days()
+        message = '已移入回收站；已有生成结果保留' if days == 0 else f'已移入回收站，{days} 天后自动永久删除；已有生成结果保留'
+        return {'deleted':True,'recoverable':True,'retention_days':days,'message':message}
     except Exception:
         if moved and destination and destination.exists():destination.replace(source)
         raise
@@ -126,6 +194,13 @@ def upload_asset(user: CurrentUser, file: UploadFile = File(...), role: Literal[
         # 文件保存成功后，将素材信息写入数据库。
         try:
             result = create_asset({**result, "user_id": user["user_id"], 'role':role, 'folder_id':folder_id or None})
+        except StorageQuotaExceeded as exc:
+            file_path = UPLOAD_DIR / result["filename"]
+            try:
+                file_path.unlink(missing_ok=True)
+            except OSError:
+                logger.exception("清理超出配额的图片失败")
+            raise HTTPException(status_code=507, detail=str(exc)) from exc
         except sqlite3.Error as exc:
             logger.exception("素材信息写入数据库失败")
 

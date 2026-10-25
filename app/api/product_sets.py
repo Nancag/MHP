@@ -3,9 +3,11 @@ import hashlib
 import io
 import json
 import logging
+import os
 import threading
 import tempfile
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +31,59 @@ logger=logging.getLogger(__name__)
 export_lock=threading.BoundedSemaphore(1)
 material_lock=threading.BoundedSemaphore(1)
 LOCAL_MODEL='local-material-layout-v1'
+
+
+def _positive_env(name, default):
+    try:
+        value=int(os.environ.get(name,default))
+    except (TypeError,ValueError):
+        return default
+    return value if value>0 else default
+
+
+def queue_limits():
+    return (
+        _positive_env('MHP_PRODUCT_SET_USER_QUEUE',2),
+        _positive_env('MHP_PRODUCT_SET_GLOBAL_QUEUE',16),
+    )
+
+
+def worker_limit():
+    return _positive_env('MHP_PRODUCT_SET_WORKERS',2)
+
+
+_executor=ThreadPoolExecutor(
+    max_workers=worker_limit(),
+    thread_name_prefix='mhp-product-set',
+)
+
+
+def _ensure_task_capacity(connection,user_id):
+    per_user,global_limit=queue_limits()
+    counts=connection.execute(
+        """SELECT COUNT(DISTINCT g.batch_id),
+                  COUNT(DISTINCT CASE WHEN g.user=? THEN g.batch_id END)
+           FROM generations g JOIN product_sets s ON s.batch_id=g.batch_id
+           WHERE g.status='pending' AND g.page_index>=0""",
+        (user_id,),
+    ).fetchone()
+    queued,user_queued=counts
+    if user_queued>=per_user:
+        raise HTTPException(429,'你的套图任务已在排队，请等待当前任务完成')
+    if queued>=global_limit:
+        raise HTTPException(429,'套图任务繁忙，请稍后重试')
+
+
+def _submit_set(batch_id,user_id):
+    try:
+        _executor.submit(_run_set,batch_id,user_id)
+    except RuntimeError:
+        logger.exception('套图后台队列不可用: %s',batch_id)
+        _cancel_pending(batch_id,user_id)
+
+
+def shutdown_workers():
+    _executor.shutdown(wait=False,cancel_futures=True)
 
 
 def _local(spec):return spec.engine=='local'
@@ -152,6 +207,7 @@ def create_set(user: CurrentUser,payload: SetRequest):
                 if existing['payload_hash']!=digest:raise HTTPException(409,'同一请求编号不能用于不同套图要求')
                 batch_id=existing['batch_id']
             else:
+                _ensure_task_capacity(con,user['user_id'])
                 con.execute('INSERT INTO product_sets VALUES (?,?,?,?,?,?)',(batch_id,user['user_id'],payload.request_id,digest,encoded,stamp))
                 width,height=output_size(spec)
                 for i,page in enumerate(spec.pages):
@@ -169,7 +225,7 @@ def create_set(user: CurrentUser,payload: SetRequest):
         logger.exception('套图创建失败')
         raise HTTPException(503,'套图任务保存失败，请稍后重试')
     if not existing:
-        threading.Thread(target=_run_set,args=(batch_id,user['user_id']),daemon=True).start()
+        _submit_set(batch_id,user['user_id'])
     return _batch(batch_id,user['user_id'])
 
 
@@ -284,6 +340,7 @@ def regenerate_page(batch_id: str,generation_id: str,user: CurrentUser,payload: 
             if not current:raise HTTPException(409,'本页已更新，请刷新套图')
             if con.execute("SELECT 1 FROM generations WHERE batch_id=? AND status='pending' AND page_index>=0",(batch_id,)).fetchone():
                 raise HTTPException(409,'套图正在生成，请等待完成或先停止')
+            _ensure_task_capacity(con,user['user_id'])
             gid=uuid4().hex
             reserve_credit(con,user['user_id'],gid)
             archived=con.execute('SELECT COALESCE(MIN(page_index),0)-1 FROM generations WHERE batch_id=?',(batch_id,)).fetchone()[0]
@@ -303,7 +360,7 @@ def regenerate_page(batch_id: str,generation_id: str,user: CurrentUser,payload: 
     except Exception:
         logger.warning('套图重试保存失败: %s',batch_id)
         raise HTTPException(503,'本页任务暂时无法保存，请稍后重试')
-    threading.Thread(target=_run_set,args=(batch_id,user['user_id']),daemon=True).start()
+    _submit_set(batch_id,user['user_id'])
     return _batch(batch_id,user['user_id'])
 
 

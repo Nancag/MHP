@@ -86,6 +86,18 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(self.client.call('DELETE','/api/assets/'+aid)[0],409)
         self.assertTrue((self.root/'uploads'/(aid+'.png')).exists())
 
+    def test_expired_trash_is_permanently_purged(self):
+        aid=self.asset()
+        result=self.client.call('DELETE','/api/assets/'+aid)[1]
+        self.assertEqual(result['retention_days'],30)
+        with closing(db.get_connection()) as con,con:
+            con.execute('UPDATE assets SET deleted_at=? WHERE asset_id=?',(int(time.time())-31*86400,aid))
+        with patch.dict(os.environ,{'MHP_TRASH_RETENTION_DAYS':'30'}):
+            self.assertEqual(assets.purge_expired_trash(),1)
+        self.assertFalse((self.root/'trash'/(aid+'.png')).exists())
+        with closing(db.get_connection()) as con:
+            self.assertIsNone(con.execute('SELECT 1 FROM assets WHERE asset_id=?',(aid,)).fetchone())
+
     def test_backup_admin_confirmation_and_queue(self):
         self.assertEqual(self.client.call('GET','/api/workspace/backups')[0],403)
         self.user['email']='admin@example.com'

@@ -72,6 +72,25 @@ class MailBoundaries(unittest.TestCase):
         self.assertEqual(consumed[newer['challenge_id']],0)
         self.assertEqual(consumed[older['challenge_id']],1)
 
+    def test_unknown_resets_have_separate_limits_and_do_not_consume_mail_budget(self):
+        with patch.object(mail,'send_reset_email') as reset_mail,patch.object(mail,'send_email') as register_mail:
+            for index in range(10):
+                result=mail.request_code(f'unknown-{index}@example.invalid','synthetic-client',purpose='reset')
+                self.assertIn('challenge_id',result)
+            with closing(db.get_connection()) as con:
+                self.assertEqual(con.execute('SELECT COUNT(*) FROM auth_codes').fetchone()[0],0)
+                self.assertEqual(con.execute('SELECT COUNT(*) FROM unknown_reset_attempts').fetchone()[0],10)
+            mail.request_code('new-user@example.invalid','synthetic-client')
+        reset_mail.assert_not_called();register_mail.assert_called_once()
+
+    def test_repeated_unknown_reset_is_rate_limited_without_a_stored_code(self):
+        mail.request_code('same-unknown@example.invalid','synthetic-client',purpose='reset')
+        with self.assertRaises(HTTPException) as error:
+            mail.request_code('same-unknown@example.invalid','synthetic-client',purpose='reset')
+        self.assertEqual(error.exception.status_code,429)
+        with closing(db.get_connection()) as con:
+            self.assertEqual(con.execute('SELECT COUNT(*) FROM auth_codes').fetchone()[0],0)
+
 
 class ImageBoundaries(unittest.TestCase):
     def setUp(self):

@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 import tempfile
 from contextlib import ExitStack,closing
-from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock,patch
 import zipfile
@@ -27,7 +26,7 @@ class WithoutCutoutTests(unittest.TestCase):
         stack.enter_context(patch.object(assets,'UPLOAD_DIR',self.root/'uploads'))
         stack.enter_context(patch.object(generation_service,'GENERATION_DIR',self.root/'generated'))
         stack.enter_context(patch.object(generations,'GENERATION_DIR',self.root/'generated'))
-        stack.enter_context(patch.object(product_sets,'threading',SimpleNamespace(Thread=Mock())))
+        stack.enter_context(patch.object(product_sets,'_submit_set',Mock()))
         stack.enter_context(patch('urllib.request.urlopen',side_effect=AssertionError('No remote API allowed')))
         db.init_db()
         self.user={'user_id':'owner','email':'owner@example.invalid'}
