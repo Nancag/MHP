@@ -6,6 +6,7 @@ export function createSetDraft(input = {}, assetId = null, defaultResolution = '
     ? value.count : Math.max(1, Math.min(9, sourcePages.length))
   const text = value => typeof value === 'string' ? value : ''
   return {
+    preset_id: typeof value.preset_id === 'string' ? value.preset_id : null,
     engine: value.engine === 'reference' ? 'reference' : 'local',
     image_quality: ['low', 'medium', 'high'].includes(value.image_quality) ? value.image_quality : null,
     text_rendering: ['local', 'model'].includes(value.text_rendering) ? value.text_rendering : (sourcePages.length && !Object.hasOwn(value, 'text_rendering') ? 'local' : null),

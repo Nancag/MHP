@@ -42,6 +42,7 @@ const referenceUploading = ref(false)
 const setWorkflow = ref(true)
 const defaultResolution = ref('2000')
 const setSpec = ref(createSetDraft())
+const plannerPreset = ref(null)
 const setState = ref(null)
 const planning = ref(false)
 const referenceReady = ref(false)
@@ -72,7 +73,9 @@ const generationParams = ref(null)
 const designSpec = ref(null)
 const paramsPanel = ref(null)
 const promptBar=ref(null)
-const templateDraft=computed(()=>({workflow:setWorkflow.value?'set':'single',prompt:promptBar.value?.getPrompt?.()||'',params:generationParams.value||{},design:designSpec.value,spec:setWorkflow.value?clone(setSpec.value):null}))
+const templateDraft=computed(()=>({workflow:setWorkflow.value?'set':'single',prompt:promptBar.value?.getPrompt?.()||'',params:generationParams.value||{},design:designSpec.value,
+ planner:setWorkflow.value&&plannerPreset.value?{preset_id:plannerPreset.value.preset_id}:null,
+ spec:setWorkflow.value&&(!plannerPreset.value||(setSpec.value.preset_id===plannerPreset.value.preset_id&&['local','reference'].includes(setSpec.value.engine)))?clone(setSpec.value):null}))
 function applyAiPlan(job){
  if(generating.value||planning.value||job.status!=='completed')return
  const plan=job.content
@@ -80,10 +83,12 @@ function applyAiPlan(job){
    copy_lines:p.copy_lines.map(c=>c.target),copy_lines_zh:p.copy_lines.map(c=>c.zh),direction:p.direction_zh,
    crop:null,source_is_scene:false,no_overlay:false}))
  setSpec.value={...setSpec.value,product_name:plan.product_name_zh,requirements:plan.brief_zh,
-   language:job.request.language,count:pages.length,pages,
-   text_rendering:setSpec.value.engine==='reference'?null:'local',
+   language:job.request.language,count:pages.length,pages,preset_id:job.request.preset_id||null,
+   ...(job.request.preset_id?{engine:'',image_quality:null}:{}),
+   text_rendering:job.request.preset_id?null:(setSpec.value.engine==='reference'?null:'local'),
    reference_ids:setSpec.value.reference_ids.filter(id=>!pages.some(p=>p.asset_id===id))}
  setState.value=null
+ if(job.request.preset_id!==plannerPreset.value?.preset_id)plannerPreset.value=job.request.preset_id?{preset_id:job.request.preset_id}:null
  selectedProduct.value=products.value.find(p=>p.asset_id===pages[0].asset_id)||{asset_id:pages[0].asset_id,filename:plan.product_name_zh}
  activeTab.value='original'
  showToast(english.value?'Bilingual plan applied. Choose production, typography and quality, then confirm image generation.':'双语方案已应用。请选择制作方式、排字方式与质量，再确认生图。')
@@ -98,7 +103,9 @@ async function applyTemplate(value){
   return
  }
  setWorkflow.value=value.workflow==='set'
+ plannerPreset.value=setWorkflow.value&&value.planner?{preset_id:value.planner.preset_id}:null
  if(setWorkflow.value){setSpec.value=createSetDraft(value.spec,selectedProduct.value?.asset_id||'',defaultResolution.value);setSpec.value.reference_ids=[];setState.value=null}
+ if(plannerPreset.value){paramsOpen.value=true;activeSection.value='products'}
  designSpec.value=value.design||null
  await nextTick();paramsPanel.value?.restore({...value.params,resolution:['1200','2000'].includes(value.params?.resolution)?value.params.resolution:'2000'});promptBar.value?.setPrompt(value.prompt||'')
  showToast(english.value?'Template applied. Select material and review before generating.':'模板已套用，请选择素材并检查参数后生成')
@@ -297,13 +304,15 @@ async function loadSetHistory(restoreLast=true){
   const data=await fetchProductSets()
   if(unmounted)return
   if(data.items?.length){
-   const state=data.items[0];setSpec.value=clone(state.spec);applySet(state)
+   const state=data.items[0];setSpec.value=clone(state.spec);plannerPreset.value=state.spec.preset_id?{preset_id:state.spec.preset_id}:null;applySet(state)
    if(state.status==='pending'){generating.value=true;try{await pollSet(state.batch_id)}finally{generating.value=false;loadCredits();loadGenerationHistory()}}
   }
  }catch(error){referenceReady.value=false}
 }
 async function generateSet(promptText='',fresh=false){
  if(generating.value||planning.value)return
+ if(plannerPreset.value&&setSpec.value.preset_id!==plannerPreset.value.preset_id){showToast(english.value?'Review and apply the official storyboard first.':'请先完成官方模板策划并核对应用');return}
+ if(!['local','reference'].includes(setSpec.value.engine)){showToast(english.value?'Choose production method first.':'请先自行选择制作方式');return}
  if(setSpec.value.engine!=='local'&&!referenceReady.value){showToast(english.value?'GPT Image 2 is not configured.':'后端尚未配置 GPT Image 2');return}
  const spec=clone(setSpec.value)
  spec.product_name=spec.product_name.trim()
@@ -396,7 +405,7 @@ function handleParamsChange(params) {
 
 async function handleSelectGeneration(gen) {
   if(generating.value||planning.value)return
-  if(gen.batch_id){try{const state=await fetchProductSet(gen.batch_id);if(unmounted||generating.value||planning.value)return;setWorkflow.value=true;setSpec.value=clone(state.spec);applySet(state);generationResult.value=state.items.find(item=>item.generation_id===gen.generation_id)||gen}catch(error){showToast(userError(error))}return}
+  if(gen.batch_id){try{const state=await fetchProductSet(gen.batch_id);if(unmounted||generating.value||planning.value)return;setWorkflow.value=true;setSpec.value=clone(state.spec);plannerPreset.value=state.spec.preset_id?{preset_id:state.spec.preset_id}:null;applySet(state);generationResult.value=state.items.find(item=>item.generation_id===gen.generation_id)||gen}catch(error){showToast(userError(error))}return}
   setWorkflow.value=false
   generationResult.value = gen
   activeTab.value = 'generated'
@@ -482,6 +491,7 @@ async function handleSelectGeneration(gen) {
         v-model:design="designSpec"
         v-model:set-workflow="setWorkflow"
         v-model:set-spec="setSpec"
+        :planner-preset="plannerPreset"
         :default-resolution="defaultResolution"
         :products="products"
         :busy="generating || planning"

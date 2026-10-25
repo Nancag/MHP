@@ -127,7 +127,8 @@ def capabilities(user: CurrentUser):
 @router.post('',status_code=201)
 def create_set(user: CurrentUser,payload: SetRequest):
     spec=payload.spec
-    encoded=spec.model_dump_json()
+    # An absent new optional field must not invalidate retries of historical requests.
+    encoded=spec.model_dump_json(exclude={'preset_id'} if spec.preset_id is None else set())
     digest=hashlib.sha256(encoded.encode()).hexdigest()
     with closing(db.get_connection()) as con:
         existing=con.execute('SELECT batch_id,payload_hash FROM product_sets WHERE user_id=? AND request_id=?',

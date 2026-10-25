@@ -3,9 +3,11 @@ import { computed } from 'vue'
 import MaterialCropEditor from './MaterialCropEditor.vue'
 import ProductPlanAssistant from './ProductPlanAssistant.vue'
 import {assetPreviewUrl} from '../../api/client'
-const props=defineProps({modelValue:{type:Object,required:true},products:{type:Array,default:()=>[]},english:Boolean,busy:Boolean,credits:{type:Number,default:null},ready:Boolean})
+const props=defineProps({modelValue:{type:Object,required:true},preset:{type:Object,default:null},products:{type:Array,default:()=>[]},english:Boolean,busy:Boolean,credits:{type:Number,default:null},ready:Boolean})
 const emit=defineEmits(['update:modelValue','apply-plan','planning'])
 const local=computed(()=>props.modelValue.engine==='local')
+const needsPlan=computed(()=>props.preset&&props.modelValue.preset_id!==props.preset.preset_id)
+const counts=computed(()=>props.modelValue.preset_id?[7,8,9]:[1,2,3,4,5,6,7,8,9])
 const sources=computed(()=>[...new Map([...props.modelValue.pages.filter(p=>p.asset_id).map(p=>({asset_id:p.asset_id,filename:p.asset_id})),...props.products].map(p=>[p.asset_id,p])).values()])
 const text=computed(()=>props.english?{
  name:'Product name / facts',requirements:'Creative requirements (background, style, prohibitions)',count:'Number of independent images',
@@ -23,7 +25,7 @@ function update(key,value){emit('update:modelValue',{...props.modelValue,...(key
 function count(value){const pages=props.modelValue.pages.slice(0,value);while(pages.length<value)pages.push({asset_id:props.modelValue.pages[0]?.asset_id||'',kind:pages.length?(local.value?'feature':'detail'):'main',title:'',copy_lines:[],direction:''});emit('update:modelValue',{...props.modelValue,count:value,pages})}
 function page(index,key,value){const pages=props.modelValue.pages.map((p,i)=>i===index?{...p,...(key==='asset_id'?{crop:null,source_is_scene:false}:{}),...(key==='kind'&&value==='scene'?{crop:null}:{}),[key]:value}:p);update('pages',pages)}
 function sourceUrl(item){return assetPreviewUrl(item.asset_id)}
-function preset(){
+function washerPreset(){
  const aid=props.modelValue.pages[0]?.asset_id||props.products[0]?.asset_id||''
  const entries=[
   ['main','МИНИ-СТИРАЛЬНАЯ МАШИНА',['Объём 2 л','Аккумулятор 3000 мА·ч'],'完整主体，大俄文品名，少字，通透高级的商品主图'],
@@ -41,9 +43,11 @@ function preset(){
 }
 </script>
 <template>
- <ProductPlanAssistant :english="english" :busy="busy" :language="modelValue.language" :count="modelValue.count" @apply="emit('apply-plan',$event)" @busy="emit('planning',$event)" />
- <fieldset class="set-plan" :disabled="busy">
-  <label>{{ english?'Create with':'制作方式' }}<select class="set-plan__engine" :value="modelValue.engine||'local'" @change="update('engine',$event.target.value)"><option value="local">{{ english?'Photo layout (no AI calls)':'素材排版（不调用AI）' }}</option><option value="reference" :disabled="!ready">GPT Image 2</option></select></label>
+ <ProductPlanAssistant :preset="preset" :english="english" :busy="busy" :language="modelValue.language" :count="modelValue.count" @apply="emit('apply-plan',$event)" @busy="emit('planning',$event)" />
+ <p v-if="needsPlan">{{ english?'Complete and review the official storyboard above before choosing image settings.':'请先在上方完成官方模板策划并逐页核对，再选择生图设置。' }}</p>
+ <fieldset v-else class="set-plan" :disabled="busy">
+  <label>{{ english?'Create with':'制作方式' }}<select class="set-plan__engine" :value="modelValue.engine" @change="update('engine',$event.target.value)"><option value="" disabled>{{ english?'Choose production method':'请选择制作方式' }}</option><option value="local">{{ english?'Photo layout (no AI calls)':'素材排版（不调用AI）' }}</option><option value="reference" :disabled="!ready">GPT Image 2</option></select></label>
+  <p v-if="modelValue.preset_id">{{ english?'Photo layout keeps original pixels and costs no provider fees, but cannot create new scenes. AI generation can redesign scenes and styling, but costs provider fees and requires checking product consistency.':'素材排版：保留原图像素，无上游费用，但不能生成新场景。AI生图：可重做场景与风格，但会产生接口费用，并需核对商品一致性。' }}</p>
   <label v-if="!local">{{ english?'AI quality':'AI生成质量' }}<select :value="modelValue.image_quality||''" @change="update('image_quality',$event.target.value)"><option value="" disabled>{{ english?'Choose quality':'请选择质量' }}</option><option value="low">{{ english?'Low':'低' }}</option><option value="medium">{{ english?'Medium':'中' }}</option><option value="high">{{ english?'High':'高' }}</option></select></label>
   <label v-if="!local">{{ english?'Typography (choose before generating)':'文字排版（生图前自行选择）' }}<select :value="modelValue.text_rendering||''" @change="update('text_rendering',$event.target.value)"><option value="" disabled>{{ english?'Choose typography':'请选择排字方式' }}</option><option value="local">{{ english?'Exact program typography':'程序精确排字' }}</option><option value="model">{{ english?'AI integrated lettering & layout':'模型直接生成图文' }}</option></select></label>
   <p v-if="!local">{{ english?'Program typography preserves exact text in fixed zones. AI lettering allows flexible composition but spelling and numbers may be wrong; regenerating may cost more. Choose based on your needs.':'程序排字：文字可精确控制，但版式受固定区域限制。模型图文：布局更自由，但外语拼写和数字可能出错，重做可能再次收费。请按需要选择。' }}</p>
@@ -52,8 +56,8 @@ function preset(){
   <p>{{ local?(english?'Uses your photos; no new scenes or API calls.':'使用真实素材排版，不生成新场景，不调用生图API。'):text.privacy }}</p>
   <label>{{ english?'Product name':'商品名称' }}<input maxlength="100" :placeholder="english?'e.g. Portable washer':'例如：便携式洗衣机'" :value="modelValue.product_name" @input="update('product_name',$event.target.value)" /></label>
   <div class="set-plan__common">
-   <label>{{ english?'Images':'张数' }}<select :value="modelValue.count" @change="count(Number($event.target.value))"><option v-for="n in 9" :key="n" :value="n">{{ n }}</option></select></label>
-   <label>{{ english?'Copy language':'文案语言' }}<select :value="modelValue.language" @change="update('language',$event.target.value)"><option value="ru">{{ english?'Russian':'俄语' }}</option><option value="en">{{ english?'English':'英语' }}</option></select></label>
+   <label>{{ english?'Images':'张数' }}<select :value="modelValue.count" @change="count(Number($event.target.value))"><option v-for="n in counts" :key="n" :value="n">{{ n }}</option></select></label>
+   <label>{{ english?'Copy language':'文案语言' }}<select :value="modelValue.language" :disabled="!!modelValue.preset_id" @change="update('language',$event.target.value)"><option value="ru">{{ english?'Russian':'俄语' }}</option><option value="en">{{ english?'English':'英语' }}</option></select></label>
   </div>
   <p :class="{'set-plan__warning':credits!==null&&credits<modelValue.count}">{{ text.quota }}: {{ modelValue.count }} / {{ credits ?? '—' }}</p>
   <details v-for="(item,index) in modelValue.pages" :key="index" :open="index===0" class="set-plan__page">
@@ -77,7 +81,7 @@ function preset(){
    <summary>{{ english?'More settings':'更多设置' }} · {{ modelValue.resolution }} px · 3:4</summary>
    <label>{{ text.resolution }}<select :value="modelValue.resolution" @change="update('resolution',$event.target.value)"><option v-for="edge in ['1200','2000']" :key="edge">{{ edge }}</option></select></label>
    <label v-if="local">{{ english?'Palette':'配色' }}<select :value="modelValue.palette||'cool'" @change="update('palette',$event.target.value)"><option value="cool">{{ english?'Cool white / navy':'冷白 / 藏蓝' }}</option><option value="warm">{{ english?'Warm ivory':'暖米色' }}</option><option value="mono">{{ english?'Monochrome':'简约灰白' }}</option></select></label>
-   <button class="set-plan__preset" type="button" @click="preset">{{ text.preset }}</button>
+   <button v-if="!modelValue.preset_id" class="set-plan__preset" type="button" @click="washerPreset">{{ text.preset }}</button>
    <p>{{ text.size }}</p>
    <p>{{ local?(english?'Requirements are notes. Use source, crop, palette and copy controls to implement them. Source lettering remains. Examples are for manual comparison. Each image uses 1 MHP credit.':'本地模式的画面要求仅作备注，需通过素材、裁切、配色和文案设置落实；原图已有文字会保留，示例图供人工对照。每张使用1个MHP额度。'):text.privacy }}</p>
   </details>

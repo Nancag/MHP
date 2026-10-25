@@ -1,0 +1,22 @@
+{
+  "format": "mhp-template",
+  "version": 1,
+  "template": {
+    "name": "MHP 官方 · 宠物加热垫（俄语）",
+    "description": "专用官方流程：核实商品 → 选择7/8/9张 → 大白话生成俄语＋中文方案 → 逐页确认 → 逐张生图。套用不调用API。",
+    "payload": {
+      "workflow": "set",
+      "prompt": "",
+      "params": {
+        "language": "ru",
+        "ratio": "3:4",
+        "resolution": "2000"
+      },
+      "design": null,
+      "spec": null,
+      "planner": {
+        "preset_id": "mhp-pet-heating-pad-ru-v1"
+      }
+    }
+  }
+}

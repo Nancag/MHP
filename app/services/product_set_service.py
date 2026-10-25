@@ -4,6 +4,7 @@ from typing import Literal
 from PIL import Image, ImageDraw, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from app.services.poster_service import _font_coverage, _fit_text, font
+from app.services import official_templates
 
 ID = r'^[0-9a-f]{32}$'
 
@@ -73,6 +74,7 @@ class ProductSetSpec(BaseModel):
     palette: Literal['cool','warm','mono'] = 'cool'
     # Omitted on historical jobs = the original local typography pipeline.
     text_rendering: Literal['local','model'] | None = 'local'
+    preset_id: str | None = Field(default=None, max_length=80)
 
     @field_validator('reference_ids')
     @classmethod
@@ -86,6 +88,11 @@ class ProductSetSpec(BaseModel):
     def check_count(self):
         if len(self.pages)!=self.count or self.pages[0].kind!='main':
             raise ValueError('页数须与生成张数一致，第一张须为主图')
+        official_templates.check_selection(self.preset_id, self.count, self.language)
+        if self.preset_id and any(p.kind == 'main' for p in self.pages[1:]):
+            raise ValueError('专用模板仅第一张可为主图')
+        official_templates.check_pages(self.preset_id, [
+            [p.title, p.title_zh, p.direction, *p.copy_lines, *p.copy_lines_zh] for p in self.pages])
         return self
 
 
@@ -152,7 +159,7 @@ def build_instruction(spec,index):
             'Images 2-3, if present, are STYLE/LAYOUT references only; never copy their product, claims, logo or accessories. '
             'Preserve the exact product identity. No invented parts, accessories, labels or functional claims. '
             'Follow seller style requirements and example aesthetics; maintain a coherent visual identity across the set. '
-            +zones+lettering+'Preserve actual product markings. '+composition+brief+' '
+            +official_templates.image_rules(spec.preset_id,index)+zones+lettering+'Preserve actual product markings. '+composition+brief+' '
             f'Product: {spec.product_name}. Page {index+1}/{spec.count}. Feature: {page.title}. '
             f'Page art direction: {page.direction}. Seller creative requirements: {spec.requirements}')
 

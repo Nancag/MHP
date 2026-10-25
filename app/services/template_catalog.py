@@ -1,5 +1,6 @@
 """MHP presets and attributed platform guidance, never platform certification."""
 from copy import deepcopy
+from app.services.official_templates import PET_ID, get_preset
 
 DATE='2026-10-24'
 OZON='https://seller-edu.ozon.ru/rabota-s-tovarami/trebovaniya-k-kartochkam-tovarov/media/foto-i-video-tovara'
@@ -21,6 +22,7 @@ def preset(key,name,kinds,*,plain=False,requirements='',palette='cool',source=''
 
 def catalog():
     common='平台规则按通用品类整理；类目例外须在卖家后台复核。不保证通过审核，不代表平台认证。'
+    pet = get_preset(PET_ID)
     items=[preset('mhp-main','MHP · 纯商品主图',['main'],plain=True),
            preset('mhp-feature','MHP · 主图＋卖点',['main','feature']),
            preset('mhp-detail','MHP · 主图＋细节',['main','detail']),
@@ -33,4 +35,10 @@ def catalog():
                   rules=['俄文跨境卖家规范：至少300×300像素，单张不超过10MB；展示适配3:4。','主图应清晰、完整，商品占画面至少三分之二；不要附加价格、广告、水印或配送信息。',common]),
            preset('ozon-ru','Ozon 俄罗斯 · 待核实规范',['main'],plain=True,source=OZON,status='pending',
                   rules=['官方说明页本次无法读取，尺寸、文件大小和类目例外尚未核实；暂不作为已核实平台模板启用。',common])]
-    return {'items':deepcopy(items),'notice':'MHP内置模板与按平台规范整理的预设；均非平台认证或平台提供的设计文件。Amazon按用户选择暂缓。原图背景和文字在本地模式仍会保留，不含抠图。'}
+    items.insert(0, {'template_id': PET_ID, 'name': pet['name'],
+                    'description': '专用官方流程：核实商品 → 选择7/8/9张 → 大白话生成俄语＋中文方案 → 逐页确认 → 逐张生图。套用不调用API。',
+                    'source_url': '', 'checked_on': '2026-10-25', 'verification': 'mhp-official',
+                    'rules': pet['rules'], 'payload': {'workflow': 'set', 'prompt': '',
+                    'params': {'language': 'ru', 'ratio': '3:4', 'resolution': '2000'},
+                    'design': None, 'spec': None, 'planner': {'preset_id': PET_ID}}})
+    return {'items':deepcopy(items),'notice':'MHP官方模板与按平台规范整理的预设；均非平台认证或平台提供的设计文件。官方模板中的商品功能仍须逐项核实。Amazon按用户选择暂缓。原图背景和文字在本地模式仍会保留，不含抠图。'}

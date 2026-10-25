@@ -22,12 +22,12 @@ function apply(item){if(!window.confirm(label('将模板填入 PTMD 创作设置
   <h2>{{ label('模板库','Template library') }}</h2>
   <p>{{ label('保存创作参数与文案，选择素材后可反复套用。模板不保存原图或API密钥。','Save creative parameters and copy, then apply them to selected material. Templates contain no original files or API keys.') }}</p>
   <details open class="template-catalog">
-   <summary>{{ label('内置模板与平台规范预设','Built-in templates & platform presets') }}</summary>
+   <summary>{{ label('MHP 官方模板与平台规范预设','MHP official templates & platform presets') }}</summary>
    <p>{{ catalogNotice }}</p><p v-if="catalogError" role="alert">{{ catalogError }}</p>
    <article v-for="item in catalog" :key="item.template_id">
     <strong>{{ item.name }}</strong><p>{{ item.description }}</p><p v-for="rule in item.rules" :key="rule">{{ rule }}</p>
     <p v-if="item.source_url"><a :href="item.source_url" target="_blank" rel="noopener noreferrer">{{ label('官方规范来源','Official requirements') }}</a> · {{ label('核对日期','Checked') }} {{ item.checked_on }} · {{ item.verification==='pending'?label('待核实，暂不可用','Pending verification; unavailable'):label('已核实通用规范','General requirements verified') }}</p>
-    <button :disabled="busy||item.verification==='pending'" @click="apply(item)">{{ label('套用','Apply') }}</button>
+    <button :disabled="busy||item.verification==='pending'" @click="apply(item)">{{ item.payload.planner?label('套用并开始策划（不调用API）','Apply & open planner (no API call)'):label('套用','Apply') }}</button>
     <button :disabled="busy||item.verification==='pending'" @click="copy(item)">{{ label('复制到个人模板','Copy to personal templates') }}</button>
    </article>
   </details>
