@@ -18,6 +18,16 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build the public frontend and release archive
+        run: |
+          npm --prefix frontend ci
+          npm --prefix frontend run build
+          python3 -B deploy/build_github_release.py
       - name: Configure the production SSH identity
         env:
           MHP_SSH_PRIVATE_KEY: ${{ secrets.MHP_SSH_PRIVATE_KEY }}
@@ -30,15 +40,17 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "$MHP_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-      - name: Update the public service
+      - name: Upload and apply the verified release bundle
         env:
           MHP_DEPLOY_HOST: ${{ secrets.MHP_DEPLOY_HOST }}
           MHP_DEPLOY_USER: ${{ secrets.MHP_DEPLOY_USER }}
           MHP_DEPLOY_PATH: ${{ secrets.MHP_DEPLOY_PATH }}
-          MHP_DEPLOY_REF: ${{ github.sha }}
         run: |
           test -n "$MHP_DEPLOY_HOST"
           test -n "$MHP_DEPLOY_USER"
           test -n "$MHP_DEPLOY_PATH"
+          archive=data/github-release/mhp-release.tar.gz
+          sha=$(sha256sum "$archive" | awk '{print $1}')
+          scp -o BatchMode=yes "$archive" "$MHP_DEPLOY_USER@$MHP_DEPLOY_HOST:/tmp/mhp-release-$sha.tar.gz"
           ssh -o BatchMode=yes "$MHP_DEPLOY_USER@$MHP_DEPLOY_HOST" \
-            "MHP_DEPLOY_REF='$MHP_DEPLOY_REF' bash -s" < deploy/github_sync.sh
+            "MHP_RELEASE_SHA='$sha' MHP_DEPLOY_PATH='$MHP_DEPLOY_PATH' bash -s" < deploy/apply_github_release.sh
