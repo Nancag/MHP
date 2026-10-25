@@ -12,6 +12,7 @@ from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.services import copywriter, curl_transport
+from app.services import official_templates
 
 ProviderError = copywriter.ProviderError
 ID = r'^[0-9a-f]{32}$'
@@ -87,8 +88,9 @@ The brief is a production plan, not a statement that images or facts have been v
 
 def capabilities():
     cap = copywriter.capabilities()
-    return {**cap, 'languages': {k: copywriter.LANGUAGES[k] for k in ('ru', 'en')},
+    return {**cap, 'languages': {k: copywriter.LANGUAGES[k] for k in ('ru', 'en', 'de', 'fr', 'es', 'pt')},
             'max_images': MAX_IMAGES, 'max_count': 9, 'multimodal_live_verified': False,
+            'presets': [official_templates.get_preset(official_templates.PET_ID)],
             'image_note': '最多9张选定图片，发送前缩至长边1600像素；图片理解、参数及双语文案仍需逐页核对。'}
 
 
@@ -113,7 +115,8 @@ def image_block(path):
         raise ProviderError('选定图片无法读取或超过限制；未调用文案服务') from None
 
 
-def validate_content(value, fields, language, image_ids, count):
+def validate_content(value, fields, language, image_ids, count, preset_id=None):
+    official_templates.check_selection(preset_id, count, language)
     content = PlanContent.model_validate(value)
     if len(content.pages) != count:
         raise ValueError('模型返回页数不匹配')
@@ -122,12 +125,16 @@ def validate_content(value, fields, language, image_ids, count):
             raise ValueError('模型引用了未提供的素材或字段')
         if language == 'ru' and not re.search('[А-Яа-яЁё]', page.title.target):
             raise ValueError('模型未提供俄文标题')
+    official_templates.check_pages(preset_id, [
+        [page.title.target, page.title.zh, page.direction_zh,
+         *[text for line in page.copy_lines for text in (line.target, line.zh)]] for page in content.pages])
     return content.model_dump()
 
 
-def generate(fields, language, model, wishes, images, count):
+def generate(fields, language, model, wishes, images, count, preset_id=None):
+    preset = official_templates.check_selection(preset_id, count, language)
     base, key, models = copywriter.settings()
-    if not key or model not in models or language not in ('ru', 'en'):
+    if not key or model not in models or language not in ('ru', 'en', 'de', 'fr', 'es', 'pt'):
         raise ProviderError('文案密钥、模型或目标语言尚未正确选择')
     if not 1 <= len(images) <= MAX_IMAGES:
         raise ProviderError('请明确选择1至9张商品素材')
@@ -138,7 +145,8 @@ def generate(fields, language, model, wishes, images, count):
               'selected_images': list(images), 'confirmed_facts': fields,
               'creative_wishes': wishes, 'output_schema': PlanContent.model_json_schema()}
     blocks.append({'type': 'text', 'text': json.dumps(prompt, ensure_ascii=False)})
-    payload = {'model': model, 'system': SYSTEM, 'max_tokens': 8000,
+    system = SYSTEM + ('\nMandatory MHP template production rules (not product facts):\n' + '\n'.join(preset['rules']) if preset else '')
+    payload = {'model': model, 'system': system, 'max_tokens': 8000,
                'messages': [{'role': 'user', 'content': blocks}]}
     req = urllib.request.Request(base + '/messages', data=json.dumps(payload).encode(),
                                 headers={'x-api-key': key, 'anthropic-version': '2023-06-01',
@@ -157,7 +165,7 @@ def generate(fields, language, model, wishes, images, count):
         text = ''.join(b['text'] for b in output).strip()
         fence = re.fullmatch(r'```(?:json)?[ \t]*\r?\n(.*?)\r?\n```', text, re.DOTALL | re.I)
         value = json.loads(fence.group(1) if fence else text)
-        content = validate_content(value, fields, language, images, count)
+        content = validate_content(value, fields, language, images, count, preset_id)
         usage = data.get('usage', {})
         usage = {k: v for k, v in usage.items() if k in ('input_tokens', 'output_tokens')
                  and type(v) is int and v >= 0} if isinstance(usage, dict) else {}

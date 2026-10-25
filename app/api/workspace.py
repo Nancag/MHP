@@ -67,13 +67,20 @@ class Template(BaseModel):
     def safe_payload(cls,v):
         if len(json.dumps(v))>40000:raise ValueError('模板内容过大')
         # Persist creation parameters, never credentials, user IDs, or selected private assets.
-        allowed={'prompt','params','design','spec','workflow'}
+        allowed={'prompt','params','design','spec','workflow','planner'}
         if set(v)-allowed:raise ValueError('不支持的模板字段')
         result=json.loads(json.dumps(v))
+        if result.get('planner') is not None:
+            from app.services.official_templates import get_preset
+            planner=result['planner']
+            if not isinstance(planner,dict) or set(planner)!={'preset_id'} or not isinstance(planner['preset_id'],str):
+                raise ValueError('无效官方策划模板')
+            get_preset(planner['preset_id'])
+            if result.get('workflow')!='set':raise ValueError('官方策划模板须使用套图流程')
         if not isinstance(result.get('prompt',''),str) or len(result.get('prompt',''))>8000:raise ValueError('模板提示词须为8000字以内的文本')
         schemas={'params':{'ratio','resolution','language','platform','scene','style'},
                  'design':{'kind','headline','subtitle','bullets'},
-                 'spec':{'product_name','requirements','reference_ids','language','resolution','count','pages','engine','image_quality','palette','text_rendering'}}
+                 'spec':{'product_name','requirements','reference_ids','language','resolution','count','pages','engine','image_quality','palette','text_rendering','preset_id'}}
         for key,keys in schemas.items():
             obj=result.get(key)
             if obj is not None and (not isinstance(obj,dict) or set(obj)-keys):raise ValueError('模板包含不支持的嵌套字段')
@@ -83,6 +90,9 @@ class Template(BaseModel):
         if result.get('spec'):
             from app.services.product_set_service import ProductSetSpec, SetPage
             spec=result['spec']
+            if spec.get('preset_id') is not None:
+                from app.services.official_templates import get_preset
+                get_preset(spec['preset_id'])
             if not isinstance(spec,dict) or not isinstance(spec.get('pages',[]),list) or len(spec.get('pages',[]))>9:raise ValueError('无效的套图模板')
             if str(spec.get('resolution','2000')) not in ('1200','2000'):raise ValueError('仅支持1200/2000尺寸')
             spec['reference_ids']=[]

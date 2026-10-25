@@ -145,48 +145,59 @@ class PaymentBoundaries(unittest.TestCase):
             con.execute("INSERT INTO users VALUES ('synthetic-user','synthetic@example.invalid','Synthetic QA',0)")
 
     def order(self,key='synthetic-request'):
-        return membership.create_order('synthetic-user','day',key,'synthetic-app','synthetic-seller')
+        return membership.create_order('synthetic-user',12,key,'synthetic-app','synthetic-seller')
 
     def ledger_fixture(self,order):
         return {'out_trade_no':order['order_id'],'trade_no':'synthetic-transaction',
-                'total_amount':'4.90','app_id':'synthetic-app','seller_id':'synthetic-seller',
+                'total_amount':'12.00','app_id':'synthetic-app','seller_id':'synthetic-seller',
                 'trade_status':'TRADE_SUCCESS'}
 
     def test_repeated_creation_reuses_unpaid_order_and_server_price(self):
         first=self.order();second=self.order('synthetic-new-tab')
         self.assertEqual(first['order_id'],second['order_id'])
-        self.assertEqual(first['price_fen'],490)
-        self.assertEqual(first['credits'],10)
+        self.assertEqual(first['price_fen'],1200)
+        self.assertEqual(first['credits'],12)
 
     def test_duplicate_ledger_application_does_not_duplicate_entitlement(self):
         data=self.ledger_fixture(self.order())
         membership.apply_verified_payment(data);membership.apply_verified_payment(data)
-        self.assertEqual(credit_service.summary('synthetic-user')['available'],15)
+        self.assertEqual(credit_service.summary('synthetic-user')['available'],17)
         with closing(db.get_connection()) as con:
-            self.assertEqual(con.execute("SELECT COUNT(*) FROM credit_grants WHERE source='membership'").fetchone()[0],1)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM credit_grants WHERE source='recharge'").fetchone()[0],1)
 
     def test_amount_mismatch_does_not_grant_credits(self):
-        order=self.order();data=self.ledger_fixture(order);data['total_amount']='4.91'
+        order=self.order();data=self.ledger_fixture(order);data['total_amount']='12.01'
         with self.assertRaises(HTTPException):membership.apply_verified_payment(data)
         self.assertEqual(membership.get_order('synthetic-user',order['order_id'])['status'],'pending')
         self.assertEqual(credit_service.summary('synthetic-user')['available'],5)
 
-    def test_full_refund_and_old_success_do_not_restore_entitlements(self):
+    def test_closed_notification_after_payment_does_not_duplicate_recharge(self):
         data=self.ledger_fixture(self.order());membership.apply_verified_payment(data)
         membership.apply_verified_payment({**data,'trade_status':'TRADE_CLOSED'})
         membership.apply_verified_payment(data)
-        self.assertEqual(credit_service.summary('synthetic-user')['available'],5)
-        self.assertFalse(credit_service.summary('synthetic-user')['membership']['active'])
+        self.assertEqual(credit_service.summary('synthetic-user')['available'],17)
+        self.assertIsNone(credit_service.summary('synthetic-user')['membership'])
 
     def test_closed_channel_rejects_order_creation_without_mutation(self):
         from app.api import auth,account
         from support_client import Client
         app=FastAPI();app.include_router(account.router)
         app.dependency_overrides[auth.require_user]=lambda:{'user_id':'synthetic-user'}
-        status,_=Client(app).call('POST','/api/account/orders',{'plan_id':'day','request_id':'synthetic-closed'})
+        status,_=Client(app).call('POST','/api/account/orders',{'credits':1,'request_id':'synthetic-closed'})
         self.assertEqual(status,503);self.assertFalse(alipay_service.ready())
         with closing(db.get_connection()) as con:
             self.assertEqual(con.execute('SELECT COUNT(*) FROM membership_orders').fetchone()[0],0)
+
+    def test_server_only_redemption_is_single_use_and_never_stores_plain_code(self):
+        code='QA-REDEEM-ONLY-2026'
+        with patch.dict(os.environ, {'MHP_REDEMPTION_CODES': json.dumps([{'code':code,'credits':12}])}):
+            result=membership.redeem('synthetic-user',code)
+            self.assertEqual(result['credits'],12)
+            self.assertEqual(set(result),{'credits'})
+            with self.assertRaises(HTTPException):membership.redeem('synthetic-user',code)
+        with closing(db.get_connection()) as con:
+            row=con.execute('SELECT code_hash,credits FROM redemption_claims').fetchone()
+            self.assertEqual(row['credits'],12);self.assertNotEqual(row['code_hash'],code)
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

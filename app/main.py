@@ -72,7 +72,7 @@ app.include_router(generations_router)
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "app": "MHP", "version":"1.0.0","build":"2026.10.25-redesign.4"}
+    return {"status": "ok", "app": "MHP", "version":"1.0.0","build":"2026.10.25-collector.5"}
 
 
 from fastapi import Request

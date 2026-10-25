@@ -6,7 +6,6 @@ from pathlib import Path
 from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
 from datetime import datetime
 from app.services.credit_service import CHINA
-from app.services.membership_service import PLANS
 
 
 def configuration():
@@ -58,7 +57,7 @@ def checkout_url(order,config=None):
     from cryptography.hazmat.primitives.asymmetric import padding
     config=config or configuration()
     return_parts=urlsplit(config['return_url'])
-    query=dict(parse_qsl(return_parts.query)); query['membership_order']=order['order_id']
+    query=dict(parse_qsl(return_parts.query)); query['recharge_order']=order['order_id']
     return_url=urlunsplit(return_parts._replace(query=urlencode(query)))
     params={
         'app_id':config['app_id'],'method':'alipay.trade.page.pay','format':'JSON','charset':'utf-8',
@@ -66,7 +65,7 @@ def checkout_url(order,config=None):
         'notify_url':config['notify_url'],'return_url':return_url,
         'biz_content':json.dumps({'out_trade_no':order['order_id'],'product_code':'FAST_INSTANT_TRADE_PAY',
             'total_amount':f"{order['price_fen']//100}.{order['price_fen']%100:02d}",
-            'subject':'MHP '+PLANS[order['plan_id']]['name'],'timeout_express':'30m'},ensure_ascii=False,separators=(',',':')),
+            'subject':f"MHP 生成额度充值（{order['credits']}张）",'timeout_express':'30m'},ensure_ascii=False,separators=(',',':')),
     }
     params['sign']=base64.b64encode(config['private'].sign(canonical(params),padding.PKCS1v15(),hashes.SHA256())).decode('ascii')
     return config['gateway']+'?'+urlencode(params)

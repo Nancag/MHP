@@ -3,7 +3,6 @@ from urllib.parse import parse_qsl
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Literal
 from app.api.auth import CurrentUser
 from app.services import credit_service, membership_service, alipay_service
 
@@ -16,7 +15,8 @@ def account(user:CurrentUser,response:Response):
     response.headers['Cache-Control']='no-store'
     payment_enabled=alipay_service.ready()
     return {**credit_service.summary(user['user_id']),
-            'plans':[{'plan_id':key,**value} for key,value in membership_service.PLANS.items()],
+            'price_per_credit_fen':membership_service.PRICE_PER_CREDIT_FEN,
+            'minimum_recharge':membership_service.MIN_CREDITS,'maximum_recharge':membership_service.MAX_CREDITS,
             'payment_enabled':payment_enabled,'payment_provider':'alipay' if payment_enabled else None,
             'orders':membership_service.list_orders(user['user_id'])}
 
@@ -29,7 +29,7 @@ def checkin(user:CurrentUser,response:Response):
 
 class OrderRequest(BaseModel):
     model_config=ConfigDict(extra='forbid')
-    plan_id:Literal['day','month','quarter']
+    credits:int=Field(ge=membership_service.MIN_CREDITS,le=membership_service.MAX_CREDITS)
     request_id:str=Field(pattern=r'^[A-Za-z0-9_-]{1,64}$')
 
 
@@ -39,12 +39,23 @@ def order(payload:OrderRequest,user:CurrentUser,response:Response):
     try:
         config=alipay_service.configuration()
     except (ValueError,TypeError,OSError,KeyError,ImportError):
-        raise HTTPException(503,'会员购买暂未开放，请稍后再试') from None
-    record=membership_service.create_order(user['user_id'],payload.plan_id,payload.request_id,config['app_id'],config['seller_id'])
+        raise HTTPException(503,'额度充值暂未开放，请稍后再试') from None
+    record=membership_service.create_order(user['user_id'],payload.credits,payload.request_id,config['app_id'],config['seller_id'])
     public=membership_service.public_order(record)
     if record['status']=='pending' and record['payment_deadline']>credit_service.now():
         public['checkout_url']=alipay_service.checkout_url(record,config)
     return public
+
+
+class RedeemRequest(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    code:str=Field(min_length=8,max_length=64)
+
+
+@router.post('/redeem')
+def redeem(payload:RedeemRequest,user:CurrentUser,response:Response):
+    response.headers['Cache-Control']='no-store'
+    return membership_service.redeem(user['user_id'],payload.code)
 
 
 @router.get('/orders/{order_id}')

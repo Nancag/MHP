@@ -6,6 +6,7 @@ export function createSetDraft(input = {}, assetId = null, defaultResolution = '
     ? value.count : Math.max(1, Math.min(9, sourcePages.length))
   const text = value => typeof value === 'string' ? value : ''
   return {
+    preset_id: typeof value.preset_id === 'string' ? value.preset_id : null,
     engine: value.engine === 'reference' ? 'reference' : 'local',
     image_quality: ['low', 'medium', 'high'].includes(value.image_quality) ? value.image_quality : null,
     text_rendering: ['local', 'model'].includes(value.text_rendering) ? value.text_rendering : (sourcePages.length && !Object.hasOwn(value, 'text_rendering') ? 'local' : null),
@@ -13,7 +14,7 @@ export function createSetDraft(input = {}, assetId = null, defaultResolution = '
     product_name: text(value.product_name),
     requirements: text(value.requirements),
     reference_ids: Array.isArray(value.reference_ids) ? [...value.reference_ids] : [],
-    language: value.language === 'en' ? 'en' : 'ru',
+    language: ['ru', 'en', 'de', 'fr', 'es', 'pt'].includes(value.language) ? value.language : 'ru',
     resolution: ['1200', '2000'].includes(String(value.resolution)) ? String(value.resolution) : defaultResolution,
     count,
     pages: Array.from({ length: count }, (_, index) => {

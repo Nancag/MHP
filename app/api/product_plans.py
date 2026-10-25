@@ -6,12 +6,13 @@ from contextlib import closing
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.api.auth import CurrentUser
 from app.models import db
 from app.repositories.ownership import owned_record
 from app.services import product_planner, storage_service
+from app.services import official_templates
 from app.services.library_service import now
 
 router = APIRouter(prefix='/api/product-plans', tags=['PTMD 双语套图策划'])
@@ -22,7 +23,7 @@ class PlanRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     request_id: str = Field(pattern=r'^[A-Za-z0-9_-]{1,64}$')
     model: str = Field(min_length=1, max_length=120)
-    language: str = Field(pattern=r'^(ru|en)$')
+    language: str = Field(pattern=r'^(ru|en|de|fr|es|pt)$')
     count: int = Field(ge=1, le=9, strict=True)
     image_ids: list[str] = Field(min_length=1, max_length=9)
     import_id: str | None = Field(default=None, pattern=r'^[0-9a-f]{32}$')
@@ -30,6 +31,12 @@ class PlanRequest(BaseModel):
     wishes: str = Field(min_length=1, max_length=4000)
     confirm_facts: bool = False
     confirm_send: bool = False
+    preset_id: str | None = Field(default=None, max_length=80)
+
+    @model_validator(mode='after')
+    def check_preset(self):
+        official_templates.check_selection(self.preset_id, self.count, self.language)
+        return self
 
     @field_validator('image_ids')
     @classmethod
@@ -115,7 +122,10 @@ def get_plan(plan_id: str, user: CurrentUser):
 def create_plan(payload: PlanRequest, user: CurrentUser):
     if not payload.confirm_send or not payload.confirm_facts:
         raise HTTPException(400, '请先核对商品事实，并确认向文案服务发送选定图片、字段与需求；可能产生费用')
-    digest = hashlib.sha256(payload.model_dump_json(exclude={'request_id', 'confirm_send', 'confirm_facts'}).encode()).hexdigest()
+    excluded = {'request_id', 'confirm_send', 'confirm_facts'}
+    if payload.preset_id is None:
+        excluded.add('preset_id')  # Preserve hashes of requests created before official templates.
+    digest = hashlib.sha256(payload.model_dump_json(exclude=excluded).encode()).hexdigest()
     with closing(db.get_connection()) as con:
         existing = con.execute('SELECT * FROM product_plans WHERE user_id=? AND request_id=?',
                                (user['user_id'], payload.request_id)).fetchone()
@@ -179,9 +189,9 @@ def save_plan(plan_id: str, payload: PlanEdit, user: CurrentUser):
     request = job['request']
     try:
         content = product_planner.validate_content(payload.content.model_dump(), request['facts'], request['language'],
-                                                   request['image_ids'], request['count'])
+                                                   request['image_ids'], request['count'], request.get('preset_id'))
     except ValueError:
-        raise HTTPException(400, '请检查页数、文案语言、商品素材和事实引用') from None
+        raise HTTPException(400, '请检查页数、文案语言、商品素材和事实引用；专用模板尺寸仅限主图') from None
     _images(request['image_ids'], user['user_id'])
     with closing(db.get_connection()) as con, con:
         con.execute('UPDATE product_plans SET content_json=?,updated_at=? WHERE plan_id=? AND user_id=?',
@@ -204,9 +214,10 @@ def _run(plan_id, user_id):
                 return
         job = _owned(plan_id, user_id)['request']
         images = _images(job['image_ids'], user_id)
-        content, usage = product_planner.generate(job['facts'], job['language'], job['model'], job['wishes'], images, job['count'])
+        options = {'preset_id': job['preset_id']} if job.get('preset_id') else {}
+        content, usage = product_planner.generate(job['facts'], job['language'], job['model'], job['wishes'], images, job['count'], **options)
         # Validate again even if a future adapter returns an unexpected object.
-        content = product_planner.validate_content(content, job['facts'], job['language'], images, job['count'])
+        content = product_planner.validate_content(content, job['facts'], job['language'], images, job['count'], job.get('preset_id'))
         with closing(db.get_connection()) as con, con:
             con.execute("UPDATE product_plans SET status='completed',content_json=?,usage_json=?,updated_at=? WHERE plan_id=? AND status='pending'",
                         (json.dumps(content, ensure_ascii=False), json.dumps(usage), now(), plan_id))

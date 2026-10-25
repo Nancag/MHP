@@ -10,6 +10,7 @@ const props = defineProps({
   previewBusy: Boolean,
   setWorkflow:Boolean,
   setSpec:{type:Object,default:null},
+  plannerPreset:{type:Object,default:null},
   products:{type:Array,default:()=>[]},
   busy:Boolean,
   credits:{type:Number,default:null},
@@ -78,7 +79,7 @@ emitChange()
         <select class="wb-workflow-select" :value="setWorkflow?'set':'single'" :disabled="busy" @change="emit('update:set-workflow',$event.target.value==='set')"><option value="set">{{ t.account.breadcrumb==='Account'?'Reference-guided ecommerce set':'主图 + 示例 · 电商套图' }}</option><option value="single">{{ t.account.breadcrumb==='Account'?'Single image tools':'单图工具' }}</option></select>
       </label>
       </details>
-      <ProductSetPanel v-if="setWorkflow&&setSpec" :model-value="setSpec" :products="products" :english="t.account.breadcrumb==='Account'" :busy="busy" :credits="credits" :ready="referenceReady" @update:model-value="emit('update:set-spec',$event)" @apply-plan="emit('apply-plan',$event)" @planning="emit('planning',$event)" />
+      <ProductSetPanel v-if="setWorkflow&&setSpec" :model-value="setSpec" :preset="plannerPreset" :products="products" :english="t.account.breadcrumb==='Account'" :busy="busy" :credits="credits" :ready="referenceReady" @update:model-value="emit('update:set-spec',$event)" @apply-plan="emit('apply-plan',$event)" @planning="emit('planning',$event)" />
       <template v-if="!setWorkflow">
       <p class="wb-field-hint">{{ t.ptmd.params.resolutionNote }}</p>
       <div v-for="field in fields" :key="field" class="wb-field">

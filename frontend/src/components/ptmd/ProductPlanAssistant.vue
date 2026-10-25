@@ -1,8 +1,8 @@
 <script setup>
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { assetPreviewUrl, workspaceRequest } from '../../api/client'
 
-const props = defineProps({ english: Boolean, busy: Boolean, language: String, count: Number })
+const props = defineProps({ english: Boolean, busy: Boolean, language: String, count: Number, preset: { type: Object, default: null } })
 const emit = defineEmits(['apply', 'busy'])
 const cap = ref(null), models = computed(() => cap.value?.models || [])
 const model = ref(''), language = ref(''), count = ref(null)
@@ -12,10 +12,21 @@ const histories = ref([]), job = ref(null), content = ref(null), checked = ref(f
 const loading = ref(false), running = ref(false), saving = ref(false), error = ref('')
 const locked = computed(() => props.busy || loading.value || running.value || saving.value)
 const selectedImport = computed(() => imports.value.find(i => i.import_id === importId.value))
+const selectedPreset = computed(() => cap.value?.presets?.find(p => p.preset_id === props.preset?.preset_id))
+const counts = computed(() => selectedPreset.value?.counts || (props.preset ? [7,8,9] : [1,2,3,4,5,6,7,8,9]))
 const importedFields = computed(() => Object.entries(selectedImport.value?.result?.fields || {}).filter(([, f]) => f?.value))
 let loaded = false, disposed = false, attempt = null, pollVersion = 0
 const tr = (zh, en) => props.english ? en : zh
 onUnmounted(() => { disposed = true; ++pollVersion; emit('busy', false) })
+watch(() => props.preset, async (value, previous) => {
+  if (!value && !previous) return
+  model.value = ''; language.value = 'ru'; count.value = null
+  facts.value = ''; importId.value = ''; imageIds.value = []; confirmed.value = false
+  wishes.value = ''; job.value = null; content.value = null; checked.value = false; attempt = null
+  if (!value) { language.value = ''; return }
+  if (!loaded) await load()
+  if (!disposed && props.preset === value && !wishes.value) wishes.value = selectedPreset.value?.wishes || ''
+}, { immediate: true })
 
 function showJob(value) {
   if (!value) return
@@ -48,7 +59,7 @@ async function load() {
 function open(event) {
   if (event.target.open && !loaded) {
     language.value ||= props.language || ''
-    count.value ??= props.count || null
+    if (!props.preset) count.value ??= props.count || null
     load()
   }
 }
@@ -104,12 +115,17 @@ async function resume(id) {
 async function generate(fresh = false) {
   if (locked.value) return
   error.value = ''
+  if (props.preset && (!selectedPreset.value || !counts.value.includes(Number(count.value)) || language.value !== selectedPreset.value.language)) {
+    error.value = tr('请先加载官方模板，并选择7/8/9张俄语方案。', 'Load the official preset and select 7, 8 or 9 Russian images.')
+    return
+  }
   if (!model.value || !language.value || !count.value || !imageIds.value.length || !wishes.value.trim() || !confirmed.value || (!importId.value && !facts.value.trim())) {
     error.value = tr('请选择模型、语言、张数及商品图片，填写需求与商品事实，并勾选核对。', 'Select model, language, count and images; enter wishes and confirmed facts, then check the confirmation.')
     return
   }
   const payload = { model: model.value, language: language.value, count: Number(count.value), image_ids: [...imageIds.value],
     import_id: importId.value || null, confirmed_facts: facts.value.trim(), wishes: wishes.value.trim(), confirm_send: true, confirm_facts: true }
+  if (props.preset) payload.preset_id = props.preset.preset_id
   const fingerprint = JSON.stringify(payload)
   if (!window.confirm(tr(`确认向 ${model.value} 发送所选${imageIds.value.length}张商品图片、已核对字段和需求，生成${count.value}页双语方案？可能产生文案接口费用；本次不生图，失败不自动重试。图片理解、参数及翻译仍需逐页核对。`,
     `Send ${imageIds.value.length} selected images, confirmed facts and wishes to ${model.value} for a ${count.value}-page bilingual plan? Provider fees may apply. No image generation or automatic retries. Review image interpretation, facts and translations page by page.`))) return
@@ -148,9 +164,15 @@ function removeLine(page, index) {
 </script>
 
 <template>
-  <details class="plan-assistant" @toggle="open">
+  <details class="plan-assistant" :open="!!preset" @toggle="open">
     <summary>{{ tr('AI 帮我写需求与文案', 'AI brief & bilingual storyboard') }}</summary>
     <p>{{ tr('选商品资料 → 大白话描述 → 双语方案 → 核对后应用。调用文案与生图分别确认。', 'Select product materials → describe your wishes → bilingual plan → review and apply. Text and image calls require separate confirmation.') }}</p>
+    <template v-if="selectedPreset">
+      <strong>{{ selectedPreset.name }}</strong>
+      <ul><li v-for="rule in selectedPreset.rules" :key="rule">{{ rule }}</li></ul>
+      <p>{{ tr('截图参数待核对清单：以下均未确认为事实，不会自动发送给模型。仅把已核实内容填写到商品事实。', 'Reference claim checklist: these are unverified and are not sent to the model. Enter only verified information in product facts.') }}</p>
+      <ul><li v-for="item in selectedPreset.checklist" :key="item">{{ item }}</li></ul>
+    </template>
     <button type="button" :disabled="locked" @click="load">{{ tr('刷新资料与任务', 'Refresh materials & jobs') }}</button>
     <fieldset :disabled="locked">
       <label>{{ tr('商品资料（选填）', 'Imported facts (optional)') }}
@@ -174,8 +196,8 @@ function removeLine(page, index) {
       <p>{{ tr('图片用于理解外观和安排画面；图片上的参数仍需核对，模型不会据此验证功能。', 'Images help with appearance and composition. Printed claims still require seller verification.') }}</p>
       <label>{{ tr('大白话需求', 'Your creative wishes') }}<textarea v-model="wishes" rows="4" maxlength="4000" :placeholder="tr('例如：卖俄罗斯，做8张，暖色高级一点，主图字少，详情展示使用场景；尺寸只在主图展示。', 'Describe the market, style, scenes and what each image should emphasize. Choose the actual language and count below.')" /></label>
       <label>{{ tr('文案模型', 'Text model') }}<select v-model="model"><option value="" disabled>{{ tr('请选择', 'Choose') }}</option><option v-for="name in models" :key="name">{{ name }}</option></select></label>
-      <label>{{ tr('文案语言', 'Copy language') }}<select v-model="language"><option value="" disabled>—</option><option value="ru">Русский</option><option value="en">English</option></select></label>
-      <label>{{ tr('独立图片张数', 'Independent images') }}<select v-model="count"><option :value="null" disabled>—</option><option v-for="n in 9" :key="n" :value="n">{{ n }}</option></select></label>
+      <label>{{ tr('文案语言', 'Copy language') }}<select v-model="language" :disabled="!!preset"><option value="" disabled>—</option><option value="ru">Русский</option><option value="en">English</option></select></label>
+      <label>{{ tr('独立图片张数', 'Independent images') }}<select v-model="count"><option :value="null" disabled>—</option><option v-for="n in counts" :key="n" :value="n">{{ n }}</option></select></label>
       <label class="plan-check"><input v-model="confirmed" type="checkbox" />{{ tr('已核对选定商品、采集字段及补充事实；风格要求不作为商品参数。', 'I checked the product, imported fields and facts. Creative wishes are not specifications.') }}</label>
       <p v-if="cap && !cap.configured" role="alert">{{ tr('后端文案接口未配置，暂不能调用。', 'Text API is not configured.') }}</p>
       <button type="button" :disabled="!cap?.configured" @click="generate(false)">{{ tr('确认调用文案 API · 整理方案', 'Confirm text API call · create plan') }}</button>
