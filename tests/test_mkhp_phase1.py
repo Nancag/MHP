@@ -3,12 +3,14 @@ from contextlib import ExitStack, closing
 from pathlib import Path
 import io
 import json
+import os
 import sqlite3
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI,HTTPException
 from PIL import Image
 
 from app.api import auth, assets, library, mkhp
@@ -110,6 +112,29 @@ class LibraryTests(unittest.TestCase):
         a = library_service.folder_for_source('owner', 'https://shop.example/a', 'A')
         self.assertEqual(a['folder_id'], library_service.folder_for_source('owner', 'https://shop.example/a', 'A')['folder_id'])
         self.assertNotEqual(a['folder_id'], library_service.folder_for_source('owner', 'https://shop.example/b', 'B')['folder_id'])
+
+    def test_upload_quota_counts_existing_user_storage(self):
+        data=io.BytesIO();Image.new('RGB',(20,20),'blue').save(data,'PNG');payload=data.getvalue()
+        class Upload:
+            def __init__(self):self.file=io.BytesIO(payload)
+        with patch.dict(os.environ,{'MHP_USER_STORAGE_BYTES':str(len(payload)+10)}):
+            first=assets.upload_asset(self.user,Upload(),role='product',folder_id=None)
+            self.assertTrue((self.root/'uploads'/first['filename']).is_file())
+            with self.assertRaises(HTTPException) as error:
+                assets.upload_asset(self.user,Upload(),role='product',folder_id=None)
+        self.assertEqual(error.exception.status_code,507)
+        self.assertEqual(self.client.call('GET','/api/assets')[1]['total'],1)
+        self.assertEqual(len(list((self.root/'uploads').glob('*.png'))),1)
+
+    def test_browser_collection_uses_the_same_quota(self):
+        data=io.BytesIO();Image.new('RGB',(20,20),'green').save(data,'PNG');payload=data.getvalue()
+        result={'images':[],'image_errors':[]}
+        with patch.dict(os.environ,{'MHP_USER_STORAGE_BYTES':str(len(payload)-1)}),patch.object(
+            mkhp,'fetch_public',return_value=(payload,'image/png','https://img.alicdn.com/quota.png')):
+            mkhp._download_images('a'*32,'owner','b'*32,result,['https://img.alicdn.com/quota.png'],time.monotonic()+10)
+        self.assertEqual(result['images'],[])
+        self.assertIn('存储空间不足',result['image_errors'][0]['message'])
+        self.assertEqual(list((self.root/'uploads').rglob('*.png')),[])
 
     def test_all_recognized_images_can_be_archived_in_batches_and_failures_retried(self):
         # Existing static-import history remains usable after new static imports retire.

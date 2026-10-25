@@ -57,3 +57,11 @@ class PasswordTests(unittest.TestCase):
 
     def test_deprecated_code_login_is_disabled(self):
         self.assertEqual(self.client.call('POST','/api/auth/email/verify',{'challenge_id':'0'*32,'code':'000000'})[0],410)
+
+    def test_invalid_challenge_never_derives_password_and_requests_are_rate_limited(self):
+        payload={'challenge_id':'0'*32,'code':'000000','username':'QA','password':self.password,'remember':True}
+        with patch.object(password_auth,'encode_password') as derive:
+            for _ in range(60):
+                self.assertEqual(self.client.call('POST','/api/auth/register',payload)[0],400)
+            self.assertEqual(self.client.call('POST','/api/auth/register',payload)[0],429)
+        derive.assert_not_called()

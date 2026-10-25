@@ -60,4 +60,9 @@ def run(stop):
             process_due()
         except Exception:
             logger.exception('会员提醒任务暂不可用')
+        try:
+            from app.api.assets import purge_expired_trash
+            purge_expired_trash()
+        except Exception:
+            logger.exception('回收站清理任务暂不可用')
         stop.wait(60)

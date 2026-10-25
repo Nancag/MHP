@@ -121,6 +121,22 @@ def init_db():
                 remember INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions(expires_at);
+            CREATE TABLE IF NOT EXISTS unknown_reset_attempts (
+                email_hash TEXT NOT NULL,
+                client_hash TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_unknown_reset_email
+                ON unknown_reset_attempts(email_hash, created_at);
+            CREATE INDEX IF NOT EXISTS idx_unknown_reset_client
+                ON unknown_reset_attempts(client_hash, created_at);
+            CREATE TABLE IF NOT EXISTS auth_endpoint_attempts (
+                client_hash TEXT NOT NULL,
+                endpoint TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_auth_endpoint_attempts
+                ON auth_endpoint_attempts(client_hash, endpoint, created_at);
         """)
         for table in ("assets",):
             columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.assets import router as assets_router
+from app.api.assets import purge_expired_trash, router as assets_router
 from app.api.auth import router as auth_router
 from app.api.generations import router as generations_router
 from app.api.account import router as account_router
@@ -18,6 +18,7 @@ from app.models.db import init_db
 
 # 启动时确保数据库表已创建（幂等，保留已有数据）。
 init_db()
+purge_expired_trash()
 from app.api.mkhp import recover_imports
 recover_imports()
 from app.api.product_drafts import recover_drafts
@@ -35,6 +36,8 @@ async def lifespan(app):
     worker.start()
     yield
     stop.set()
+    from app.api.product_sets import shutdown_workers
+    shutdown_workers()
 
 
 app = FastAPI(title="MHP",lifespan=lifespan)

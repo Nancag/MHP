@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from app.models.db import get_connection
+from app.services.storage_quota import enforce_asset_quota
 
 
 def create_asset(asset: dict) -> dict:
@@ -14,6 +15,12 @@ def create_asset(asset: dict) -> dict:
     connection = get_connection()
 
     try:
+        connection.execute("BEGIN IMMEDIATE")
+        enforce_asset_quota(
+            connection,
+            record.get("user_id"),
+            int(record["size_bytes"]),
+        )
         connection.execute(
             """
             INSERT INTO assets (
