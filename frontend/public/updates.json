@@ -1,0 +1,13 @@
+[
+  {
+    "version":"1.0.1",
+    "date":"2026-10-25",
+    "items":["新增MKHP 插件教程","新增PTMD新手教程"],
+    "items_en":["Added the MKHP plugin tutorial","Added the PTMD beginner tutorial"]
+  },
+  {
+    "date":"2026-10-24",
+    "items":["新版纸墨界面，支持浅色和深色主题","保留原图素材、裁切排版、逐页审核与套图导出","当前版本不接入抠图模型或千问 API"],
+    "items_en":["New paper and ink interface with light and dark themes","Original photos, detail cropping, page review and set export retained","No segmentation models or Qwen API in this version"]
+  }
+]

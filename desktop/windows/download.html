@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="下载 MHP Windows 内测客户端，复用网页版账户和图片创作功能。">
+  <title>Windows 客户端下载 · MHP</title>
+  <style>
+    :root { color-scheme: dark light; --bg:#0b1021; --panel:#151d33; --text:#eef3ff; --muted:#aab6cf; --line:#2c3852; --accent:#72d8ff; }
+    * { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--text); font:16px/1.7 "Segoe UI","Microsoft YaHei",sans-serif; }
+    a { color:var(--accent); text-underline-offset:4px; } a:focus-visible { outline:3px solid var(--accent); outline-offset:5px; }
+    header,main,footer { width:min(1040px,calc(100% - 40px)); margin:auto; }
+    header { display:flex; justify-content:space-between; align-items:center; padding:26px 0; gap:20px; }
+    .brand { font-weight:850; letter-spacing:3px; font-size:24px; text-decoration:none; color:var(--text); }
+    .hero { padding:55px 0 34px; max-width:760px; } .badge { display:inline-block; border:1px solid var(--line); border-radius:30px; padding:5px 14px; color:var(--accent); font-size:13px; }
+    h1 { font-size:clamp(34px,5vw,56px); letter-spacing:-1px; line-height:1.2; margin:22px 0; } h2 { font-size:22px; margin:0 0 12px; }
+    p { margin:0 0 16px; } .lead { color:var(--muted); max-width:660px; font-size:18px; }
+    .cards { display:grid; grid-template-columns:1.3fr 1fr; gap:20px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:20px; padding:28px; min-width:0; }
+    .primary-card { border-color:#3f92bf; } .eyebrow { font-size:13px; color:var(--accent); margin-bottom:10px; }
+    .meta,.subtle { color:var(--muted); font-size:14px; } .button { display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:13px 22px; min-height:50px; border-radius:12px; font-weight:700; text-decoration:none; background:#72d8ff; color:#071323; margin:8px 0 14px; }
+    .secondary { background:transparent; border:1px solid var(--line); color:var(--text); }
+    .hash { overflow-wrap:anywhere; font:12px/1.8 Consolas,monospace; color:var(--muted); } details { margin-top:10px; } summary { cursor:pointer; color:var(--muted); font-size:13px; }
+    .notes { margin:24px 0 0; } .notes ol { padding-left:24px; margin-bottom:0; } .notes li { margin-bottom:12px; }
+    .notice { margin-top:20px; padding:16px 20px; border-left:3px solid #e5b76d; background:var(--panel); border-radius:0 10px 10px 0; color:var(--muted); font-size:14px; }
+    footer { padding:30px 0 40px; color:var(--muted); font-size:13px; display:flex; flex-wrap:wrap; gap:20px; }
+    @media (max-width:640px) { .cards { grid-template-columns:1fr; } .hero { padding-top:26px; } .card { padding:22px; } .button { width:100%; } }
+    @media (prefers-color-scheme:light) { :root { --bg:#f5f8ff; --panel:#fff; --text:#152440; --muted:#52617a; --line:#d3deee; --accent:#006287; } .button:not(.secondary) { background:#066c96; color:#fff; } }
+  </style>
+</head>
+<body>
+  <header><a class="brand" href="/" aria-label="MHP 首页">MHP</a><a href="/">返回网页版 / Open web app ↗</a></header>
+  <main>
+    <section class="hero">
+      <span class="badge">Windows · x64 · 未签名内测版</span>
+      <h1>把 MHP 放到桌面上</h1>
+      <p class="lead">界面和页面资源已内置到 Windows 程序，从本机加载。登录、历史与 AI 生成连接 MHP 云端服务，现有账户和图片继续使用。</p>
+      <p class="meta">版本 {{VERSION}} · Windows 10 / 11（64 位）· 需要联网</p>
+    </section>
+    <section class="cards" aria-label="下载方式">
+      <article class="card primary-card">
+        <p class="eyebrow">推荐 · INSTALLER</p><h2>Windows 安装包</h2>
+        <p class="subtle">安装到当前用户，提供桌面和开始菜单入口，支持卸载。</p>
+        <a class="button" href="/downloads/windows/{{INSTALLER}}" download>↓ 下载安装包 <span>· {{INSTALLER_SIZE}}</span></a>
+        <p class="meta">{{INSTALLER}}</p>
+        <details><summary>查看 SHA256 校验值</summary><p class="hash">{{INSTALLER_SHA}}</p></details>
+      </article>
+      <article class="card">
+        <p class="eyebrow">PORTABLE</p><h2>便携版 ZIP</h2>
+        <p class="subtle">完整解压后运行 MHP 文件夹内的 MHP.exe。需自行准备运行环境。</p>
+        <a class="button secondary" href="/downloads/windows/{{PORTABLE}}" download>↓ 下载便携版 <span>· {{PORTABLE_SIZE}}</span></a>
+        <p class="meta">{{PORTABLE}}</p>
+        <details><summary>查看 SHA256 校验值</summary><p class="hash">{{PORTABLE_SHA}}</p></details>
+      </article>
+    </section>
+    <section class="card notes">
+      <h2>安装前了解</h2>
+      <ol>
+        <li><strong>运行环境：</strong>需要 .NET Framework 4.8 和 Microsoft WebView2 Runtime。安装包会在缺少 WebView2 时尝试联网安装微软运行时；便携版不自动安装依赖。</li>
+        <li><strong>内测版本：</strong>当前安装包未签名，Windows 可能显示发布者或信誉提示。请核对下载来源与 SHA256；无需关闭系统安全防护。</li>
+        <li><strong>本机界面，云端功能：</strong>断网也能打开内置界面；登录、上传、历史及图片生成仍需网络。客户端不包含本地生成模型，现有账户可直接登录。</li>
+        <li><strong>后续更新：</strong>首版使用手动更新。关闭客户端后再安装新版本。请使用普通浏览器下载安装包。</li>
+      </ol>
+    </section>
+    <p class="notice">卸载程序会保留本机登录资料及云端数据。在共用电脑上使用后，请先退出账户。此版本仍需在不同 Windows 设备上进行内测。</p>
+  </main>
+  <footer><span>MHP Windows {{VERSION}}</span><a href="/downloads/windows/README.txt">完整使用说明</a><a href="/downloads/windows/SHA256SUMS" download>下载 SHA256 校验文件</a></footer>
+</body>
+</html>

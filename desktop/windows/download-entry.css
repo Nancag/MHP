@@ -1,0 +1,4 @@
+#mhp-download-entry { position:fixed; bottom:18px; left:18px; z-index:220; padding:10px 16px; border:1px solid #4e91b0; border-radius:24px; background:#122037; color:#c6efff; box-shadow:0 4px 20px #0005; text-decoration:none; font:600 13px/1.4 "Segoe UI","Microsoft YaHei",sans-serif; }
+#mhp-download-entry[hidden] { display:none; }
+#mhp-download-entry:focus-visible { outline:3px solid #72d8ff; outline-offset:4px; }
+@media (max-width:640px) { #mhp-download-entry { bottom:10px; left:10px; padding:9px 12px; font-size:12px; } }

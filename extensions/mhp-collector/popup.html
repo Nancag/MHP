@@ -1,0 +1,7 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>MHP 商品采集助手</title><link rel="stylesheet" href="popup.css"></head><body>
+<h1>MHP 商品采集</h1><p>先在商品页完成登录、选择规格并展开商品参数，然后点击采集。请勿在订单、账户或支付页面采集。</p>
+<p id="installation" role="status"></p>
+<button id="capture">读取当前商品页</button><p id="status" role="status"></p>
+<section id="preview" hidden><h2>待导入内容</h2><pre id="facts"></pre><p id="images"></p><p>图片为候选图，仍需在 MHP 勾选核对。价格取当前页面展示值，优惠和规格可能影响价格；缺失字段不会补写。</p><button id="send">发送到已打开的 MKHP 预览</button></section>
+<p>请在同一个 Edge 浏览器打开 <a href="https://118.178.92.58" target="_blank" rel="noopener">云端 MHP</a> 或 <a href="http://127.0.0.1:5173" target="_blank" rel="noopener">本机 MHP</a>，登录并进入 MKHP，只保留一个 MHP 标签页。插件不读取登录密码或 Cookie，也不调用 AI。</p><a href="https://118.178.92.58/mhp-collector-guide.html" target="_blank" rel="noopener">完整安装与使用教程</a>
+<script src="extractor.js"></script><script src="popup.js"></script></body></html>

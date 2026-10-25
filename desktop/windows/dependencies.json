@@ -1,0 +1,18 @@
+{
+  "webview2": {
+    "file": "webview2-1.0.4258.31.nupkg",
+    "url": "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.4258.31",
+    "sha256": "56f7f4b8bf9aee4b8efefbbdd4f67d5f74ebd1b100ed0806da71bf76af481aa9"
+  },
+  "nsis": {
+    "file": "nsis-3.12.zip",
+    "url": "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.12/nsis-3.12.zip",
+    "sha256": "56581f90db321581c5381193d796fffcf2d24b2f8fed2160a6c6a3baa67f2c4f"
+  },
+  "runtime_bootstrapper": {
+    "file": "MicrosoftEdgeWebview2Setup.exe",
+    "url": "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
+    "sha256": "c90f9cdcec5e1997e581127dd1cb4526c239551908e9adbfe63ad14671bdcc94",
+    "authenticode_signer": "Microsoft Corporation"
+  }
+}

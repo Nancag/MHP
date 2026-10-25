@@ -1,0 +1,15 @@
+{
+  "version": "0.3.0",
+  "exe_sha256": "6d5fd0231347fa96fd2e7791e562f4c80afce5e8e5ae4b78bbf3b622ffa00016",
+  "files": {
+    "manifest.json": "00896b05de32132a7b2aaaaf6c66b695d8463715a082209de4b430d22a414d63",
+    "popup.html": "bc0f8ac656dd5c9eed402b096af6ae2e9b798c1114c96d1229a062da7d2293af",
+    "popup.css": "1a79ca0f569c7f6385932ab64510c6da28dbef49d79e7431daf2ffdf5ee29c28",
+    "popup.js": "38f4725c5ac7f79f566350b9950af548a2d07af199f8da26a02936d0ec80735b",
+    "extractor.js": "94c2898f7ecbe2fe169d9ad288dc7b081d810370afc5511ceb8a9140b6309478",
+    "bridge.js": "f72a6e131b9cfba5ff446ba243b8fa3d05161ab1ceb96f23e208f8a5c91b6a26",
+    "background.js": "c80e9db7c92cdf3bd887a5b45cec405d8bb5016a656f283a4e63c20f8b17f501",
+    "README.md": "bb471d0f380f7945a38e4a711497a5b7f07e632161af52af6e20a6a198b98eb3"
+  },
+  "signed": false
+}

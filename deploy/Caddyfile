@@ -1,0 +1,31 @@
+{
+    auto_https off
+    admin off
+}
+
+:8080 {
+    handle /downloads/* {
+        root * /srv/mhp
+        file_server
+    }
+    handle /client-release.json {
+        root * /srv/mhp
+        header Cache-Control "no-store"
+        file_server
+    }
+    request_body {
+        max_size 12MB
+    }
+    handle /api/* {
+        reverse_proxy api:8000 {
+            transport http {
+                response_header_timeout 300s
+            }
+        }
+    }
+    handle {
+        root * /srv/mhp
+        try_files {path} /index.html
+        file_server
+    }
+}

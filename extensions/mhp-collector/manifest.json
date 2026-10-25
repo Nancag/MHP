@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "MHP 商品采集助手",
+  "version": "0.3.0",
+  "description": "点击后读取当前商品页，预览后导入 MHP，支持安装状态检测。不会读取 Cookie 或密码。",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:5173/*",
+    "http://localhost:5173/*",
+    "https://118.178.92.58/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1:5173/*",
+        "http://localhost:5173/*",
+        "https://118.178.92.58/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "采集到 MHP",
+    "default_popup": "popup.html"
+  }
+}

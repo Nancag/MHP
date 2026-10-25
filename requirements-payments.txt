@@ -1,0 +1,2 @@
+# Optional payment signature dependency. Install in the existing MHP virtualenv.
+cryptography>=48.0.1,<49

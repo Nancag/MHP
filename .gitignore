@@ -1,0 +1,36 @@
+.env
+.env.*
+!.env.*.example
+private/
+data/
+.venv/
+__pycache__/
+*.pyc
+frontend/node_modules/
+frontend/dist/
+frontend/public/downloads/windows/
+# Temporary work, browser profiles, archives and unrelated installers.
+work/
+installers/
+.codeartsdoer/
+frontend.zip
+
+# Local credentials, databases and runtime output.
+*.pem
+*.key
+*.pfx
+*.p12
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.log
+.auth-secret
+.DS_Store
+Thumbs.db
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.vscode/
+.idea/

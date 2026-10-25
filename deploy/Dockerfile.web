@@ -1,0 +1,5 @@
+FROM caddy:2.11-alpine
+COPY deploy/Caddyfile /etc/caddy/Caddyfile
+COPY frontend/dist /srv/mhp
+RUN caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+EXPOSE 8080
