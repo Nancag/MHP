@@ -93,7 +93,7 @@ class WithoutCutoutTests(unittest.TestCase):
             'engine':'reference','image_quality':None,'text_rendering':None,'product_name':'ignored',
             'requirements':'This prompt must not influence the output.', 'language':'en','resolution':'1200','count':1,
             'pages':[{'asset_id':self.aid,'kind':'main','title':'ignored','copy_lines':[]}]}}
-        with patch.object(fixed_ptmd_template,'SOURCE_SHA256',digest), \
+        with patch.object(fixed_ptmd_template,'SOURCE_SHA256S',frozenset({digest})), \
              patch.object(fixed_ptmd_template,'RESULT',target), \
              patch.object(provider,'edit_image') as ai:
             status,state=self.client.call('POST','/api/product-sets',payload)

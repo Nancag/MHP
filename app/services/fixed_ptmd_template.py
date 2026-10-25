@@ -16,7 +16,12 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[2]
 RESULT = ROOT / 'app' / 'assets' / 'templates' / 'pet-heating-pad-fixed-ru-a.png'
 TEMPLATE_ID = 'pet-heating-pad-fixed-ru-a-v1'
-SOURCE_SHA256 = '04945f2209abcaf84d0ceb765fc69869bc417d959be69cb2627d93231263467c'
+# The approved source is retained in two lossless/converted forms by the existing
+# product library. Either exact file is the same owner-approved input image.
+SOURCE_SHA256S = frozenset({
+    '04945f2209abcaf84d0ceb765fc69869bc417d959be69cb2627d93231263467c',
+    'c1321ea7656cf639910e648586042297833b1a4c6a347c8a4956b2756e3238af',
+})
 
 
 def digest(path: Path) -> str:
@@ -29,7 +34,7 @@ def digest(path: Path) -> str:
 
 def matches(path: Path) -> bool:
     """Only the exact owner-approved source bytes select this fixed output."""
-    return path.is_file() and digest(path) == SOURCE_SHA256
+    return path.is_file() and digest(path) in SOURCE_SHA256S
 
 
 def publish(output: Path) -> dict:
